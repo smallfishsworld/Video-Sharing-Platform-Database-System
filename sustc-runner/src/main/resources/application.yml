@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/sustc  # matches compose.yml; change if needed
+    username: sustc  # avoid using a superuser
+    password: sustc
+
+    hikari:
+      connection-timeout: 180000
+      leak-detection-threshold: 120000
+
+logging:
+  level:
+    root: off
+    io.sustc: debug
+
+---
+
+benchmark:
+  data-path: data
+  student-mode: true

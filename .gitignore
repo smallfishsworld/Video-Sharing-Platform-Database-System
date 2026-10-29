@@ -1,0 +1,28 @@
+### Gradle ###
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### IDE ###
+*.iml
+.idea/
+.vscode/
+*/bin/
+
+### Build outputs ###
+/submit/
+/run/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+### Logs ###
+*.log
+
+### Benchmark data and reports (too large for git) ###
+/sustc-runner/data/**/*.ser
+/sustc-runner/data/postgresql/
+benchmark-*.json
+
+### Misc ###
+.DS_Store
