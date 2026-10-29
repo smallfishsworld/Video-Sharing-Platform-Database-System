@@ -21,7 +21,6 @@ A database backend for a Bilibili-style video-sharing platform: users, videos, d
 - [Performance optimizations](#performance-optimizations)
 - [Benchmark results](#benchmark-results)
 - [Running it](#running-it)
-- [Changes made in 2026](#changes-made-in-2026)
 - [Known limitations](#known-limitations)
 
 ## Architecture
@@ -175,17 +174,6 @@ The benchmark has 23 steps. Step 1 imports about 38,000 users plus hundreds of t
 - The reference numbers come with the framework: [`docs/benchmark/reference-standard.json`](docs/benchmark/reference-standard.json). They were not measured on the same machine, so compare times only roughly.
 - The framework does not record a time for step 12.
 
-### 2026 re-run
-
-After cleaning up the repo, I ran the original 2023 code and the fixed code on the same machine (PostgreSQL 15, JDK 21):
-
-| | Original code | Fixed code |
-|---|---|---|
-| Total passed | 5516 | 5516 |
-| Passed per step | — | identical to the original code |
-
-Both pass 102 fewer cases than in 2023. All of them are in steps #16 post, #18 update, #19 review and #21 delete. The cause is that the test data sets the videos' public time to `2025-11-30`. The spec says the public time must not be earlier than the current time, and that date has now passed, so these videos are rejected when posted, and reviewing or deleting them then fails as well. This has nothing to do with the code: runs before November 2025 are not affected.
-
 ## Running it
 
 You need JDK 17 or 21 and Docker (or a PostgreSQL 15+ you installed yourself).
@@ -211,23 +199,7 @@ psql -h localhost -U sustc -d sustc -f sql/build.sql
 
 To package `sustc-api` as a standalone jar: `./gradlew :sustc-api:submitJar`. The output is `submit/sustc-api.jar`.
 
-## Changes made in 2026
-
-While cleaning up the repo in 2026, I checked the code against the interface docs again and fixed three spec violations that the benchmark did not catch:
-
-1. **Login by mid didn't check the password**: any existing mid was accepted. A request whose qq and wechat belong to different users wasn't rejected either. Login now lives in one place, [`AuthHelper`](sustc-api/src/main/java/io/sustc/service/impl/AuthHelper.java), and follows the interface docs exactly.
-2. **`updateVideoInfo` changed every video the user owned**: the UPDATE was filtered by `where ownerMid = ?` instead of `where bv = ?`. Fixed, and the check that the new title doesn't clash with another of the user's videos was added.
-3. **Regular users could review videos**: now only superusers can. The checks are also part of the UPDATE statement itself, so when two superusers review the same video at the same time, only one succeeds.
-
-Other cleanup:
-
-- Each of the 4 service classes had an identical copy of the login, identity-lookup and empty-check code. They now share `AuthHelper`, which removes about 330 lines of duplicated code. The old empty check `s == ""` compared references and so never worked; it is now `isEmpty()`.
-- Fixed the bundled SQL scripts: `usercontrol.sql` referred to a table that doesn't exist, and the last line of `audit.sql` dropped the trigger it had just created.
-- Removed build outputs, test data, scratch SQL and a JVM crash log, and fixed `.gitignore` (the old rules also ignored the Gradle wrapper).
-
 ## Known limitations
-
-These were not changed this time:
 
 - **No transactions**: deleting an account or a video runs several DELETE statements, so a failure halfway leaves partial data. Donating a coin is a read followed by a write, so under heavy concurrency a coin could be spent twice. These should run in a transaction or use a conditional UPDATE.
 - **Connections aren't always managed with try-with-resources**: most methods leak their database connection when an exception is thrown.
