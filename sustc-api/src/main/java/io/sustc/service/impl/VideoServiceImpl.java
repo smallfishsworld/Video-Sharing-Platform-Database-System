@@ -31,7 +31,7 @@ public class VideoServiceImpl implements VideoService {
             String sql;
             PreparedStatement stmt;
             ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
+            Timestamp nowtime=Timestamp.from(BenchClock.now());
             sql="select * from videos where bv=?";
             stmt = conn.prepareStatement(sql);
             stmt.setString(1,bv);
@@ -107,7 +107,7 @@ public class VideoServiceImpl implements VideoService {
         //System.out.println(" postVideo   check point 1");
         long mid;
         String bv,ownername;
-        Timestamp nowtime=Timestamp.from(Instant.now());
+        Timestamp nowtime=Timestamp.from(BenchClock.now());
         //LocalDateTime ldt=LocalDateTime.now();
         //long timestamp = ldt.toInstant(ZoneOffset.of("+8")).toEpochMilli();
 
@@ -267,7 +267,7 @@ public class VideoServiceImpl implements VideoService {
         if (req == null) {
             return false;
         }
-        Timestamp nowtime = Timestamp.from(Instant.now());
+        Timestamp nowtime = Timestamp.from(BenchClock.now());
 
         try (Connection conn = dataSource.getConnection()) {
             long mid = AuthHelper.resolveMid(auth, conn);
@@ -371,7 +371,7 @@ public class VideoServiceImpl implements VideoService {
         //System.out.println("keywords 我 一");
         //System.out.println("check point 0!!!");
         //System.out.println(auth.toString()+"    "+keywords+"  "+pageSize+" "+pageNum);
-        Timestamp nowtime=Timestamp.from(Instant.now());
+        Timestamp nowtime=Timestamp.from(BenchClock.now());
         try {
             String sql,identity;
             Connection conn = dataSource.getConnection();
@@ -642,7 +642,7 @@ public class VideoServiceImpl implements VideoService {
             // Doing the checks in the UPDATE itself keeps concurrent reviews from both succeeding.
             try (PreparedStatement stmt = conn.prepareStatement(
                     "update videos set reviewTime = ?, reviewer = ? where bv = ? and reviewTime is null and ownerMid <> ?")) {
-                stmt.setTimestamp(1, Timestamp.from(Instant.now()));
+                stmt.setTimestamp(1, Timestamp.from(BenchClock.now()));
                 stmt.setLong(2, mid);
                 stmt.setString(3, bv);
                 stmt.setLong(4, mid);

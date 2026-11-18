@@ -29,7 +29,7 @@ public class DanmuServiceImpl implements DanmuService {
             String sql;
             PreparedStatement stmt;
             ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
+            Timestamp nowtime=Timestamp.from(BenchClock.now());
             sql="select * from videos where bv=?";
             stmt = conn.prepareStatement(sql);
             stmt.setString(1,bv);
@@ -77,7 +77,7 @@ public class DanmuServiceImpl implements DanmuService {
                 stmt.close();
                 return true;
             }
-            Timestamp nowtime=Timestamp.from(Instant.now());
+            Timestamp nowtime=Timestamp.from(BenchClock.now());
             if(nowtime.before(rst.getTimestamp("publictime")))
             {
                 stmt.close();
@@ -129,7 +129,7 @@ public class DanmuServiceImpl implements DanmuService {
             Connection conn = dataSource.getConnection();
             PreparedStatement stmt;
             ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
+            Timestamp nowtime=Timestamp.from(BenchClock.now());
             long mid=AuthHelper.resolveMid(auth,conn);
 
 
