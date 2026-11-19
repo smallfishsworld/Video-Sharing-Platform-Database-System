@@ -1,0 +1,50 @@
+## docs/benchmark/round2/plain
+
+boots (before and after each run): 2026-11-19 03:20:26
+B: commit, jar sha256 prefix, uncommitted tracked paths: [('3796695', '13515c673cd6d488', 0)]
+O: commit, jar sha256 prefix, uncommitted tracked paths: [('c367df5', '42004a16eec69e0b', 0)]
+order: c2-B1, c2-O1, c2-B2, c2-O2, c2-B3, c2-O3
+
+| run | read steps ms | write steps ms | all 21 timed steps ms | cases passed |
+|---|---:|---:|---:|---:|
+| c2-B1 | 17,790 | 3,033 | 20,823 | 5618 |
+| c2-O1 | 861 | 3,507 | 4,368 | 5622 |
+| c2-B2 | 19,479 | 2,652 | 22,131 | 5618 |
+| c2-O2 | 1,170 | 3,325 | 4,495 | 5622 |
+| c2-B3 | 19,340 | 3,010 | 22,350 | 5618 |
+| c2-O3 | 1,093 | 3,194 | 4,287 | 5622 |
+
+WAL per write step, kB (pg_waldump: all records; FPI: the full-page images among them)
+
+| step | B: WAL | B: FPI | O: WAL | O: FPI |
+|---|---:|---:|---:|---:|
+| 10 danmu send | 112 [107-122] | 4 [0-14] | 2,307 [2,221-2,307] | 2,052 [1,968-2,052] |
+| 13 coin | 7,490 [7,096-7,493] | 7,189 [6,800-7,192] | 7,054 [7,038-7,091] | 6,729 [6,713-6,766] |
+| 14 like | 6,236 [6,209-6,304] | 6,068 [6,041-6,135] | 7,708 [7,674-7,708] | 7,432 [7,400-7,433] |
+| 15 collect | 5,992 [5,920-6,368] | 5,828 [5,759-5,842] | 7,258 [7,242-7,259] | 7,001 [6,985-7,001] |
+| 16 post video | 23 [11-144] | 10 [0-10] | 43 [43-44] | 15 |
+| 17 register | 171 [163-353] | 94 [94-102] | 115 [114-116] | 51 |
+| 18 update video | 11 [2-42] | 0 [0-8] | 5 [4-5] | 0 |
+| 19 review | 6 [6-53] | 0 | 14 [13-14] | 0 |
+| 21 delete video | 64,884 [64,877-64,884] | 32,553 | 65,447 [65,447-65,448] | 32,864 |
+| 22 delete account | 28,006 [27,402-28,057] | 27,503 [26,900-27,541] | 30,699 [30,699-30,718] | 29,339 [29,339-29,358] |
+| 23 follow | 297 [263-310] | 286 [253-299] | 619 [617-626] | 604 [602-612] |
+| all write steps | 112,797 [112,598-114,017] | 79,129 [78,926-79,576] | 121,260 [121,152-121,304] | 86,079 [85,974-86,122] |
+
+Checkpoints in the server log, seconds relative to the start of step 10 (write steps end at the second given in brackets); Dirty from /proc/meminfo at the start of step 10
+
+- c2-B1: write steps 0 to 3.7 s; start -237 (wal); end -104; start -103 (wal); end -94; start -93 (wal); end -80; start -77 (wal); end -52; start -49 (wal); end -27; start -24 (wal); Dirty 62,924 kB; pg_stat_wal wal_fpi delta over the write steps 4938.0
+- c2-O1: write steps 0 to 4.0 s; end -285; start -283 (wal); end -260; start -258 (wal); end -7; start -7 (wal); end -2; start -2 (wal); Dirty 1,368 kB; pg_stat_wal wal_fpi delta over the write steps 3301.0
+- c2-B2: write steps 0 to 3.6 s; end -280; start -278 (wal); end -257; start -254 (wal); end -239; start -238 (wal); end -225; start -224 (wal); end -205; start -201 (wal); end -168; start -164 (wal); end -130; start -126 (wal); end -105; start -104 (wal); end -95; start -95 (wal); end -83; start -80 (wal); end -57; start -55 (wal); end -31; start -29 (wal); Dirty 90,244 kB; pg_stat_wal wal_fpi delta over the write steps 3069.0
+- c2-O2: write steps 0 to 4.0 s; end -279; start -276 (wal); end -215; start -215 (wal); end -206; start -205 (wal); end -196; start -194 (wal); end -173; start -170 (wal); end -147; start -145 (wal); end -8; start -8 (wal); end -3; start -3 (wal); Dirty 1,128 kB; pg_stat_wal wal_fpi delta over the write steps 7408.0
+- c2-B3: write steps 0 to 4.0 s; end -238; start -238 (wal); end -233; start -233 (wal); end -102; start -101 (wal); end -91; start -91 (wal); end -78; start -75 (wal); end -53; start -50 (wal); end -28; start -26 (wal); Dirty 73,316 kB; pg_stat_wal wal_fpi delta over the write steps 5114.0
+- c2-O3: write steps 0 to 3.6 s; end -234; start -233 (wal); end -223; start -223 (wal); end -210; start -207 (wal); end -185; start -182 (wal); end -160; start -158 (wal); end -8; start -7 (wal); end -3; start -3 (wal); Dirty 1,968 kB; pg_stat_wal wal_fpi delta over the write steps 3299.0
+
+Planner before step 8 (pg_stats n_distinct of followings, last autoanalyze, plan's top join):
+- c2-B1: [['mid1', '9768', '0', '0.014138389'], ['mid2', '38193', '0', '0.0012825669']]; table [['5961136', '2473331', '', '2026-11-19 09:00:43.349814+00', '1']]; ['->  Hash Anti Join  (cost=75374.95..76634.65 rows=9623 width=20)']
+- c2-O1: [['followee_mid', '38094', '0', '0.0026619646'], ['follower_mid', '14823', '0', '0.24368218']]; table [['5958764', '0', '2026-11-19 09:05:28.748639+00', '', '0']]; ['->  Hash Anti Join  (cost=4136.91..5447.95 rows=14674 width=18)']
+- c2-B2: [['mid1', '13051', '0', '0.02633165'], ['mid2', '37642', '0', '-0.0034487587']]; table [['5943594', '990835', '', '2026-11-19 09:10:45.691124+00', '2']]; ['->  Hash Anti Join  (cost=74872.02..76097.17 rows=12902 width=20)']
+- c2-O2: [['followee_mid', '38277', '0', '0.0035917172'], ['follower_mid', '14811', '0', '0.25176376']]; table [['5958764', '0', '2026-11-19 09:15:25.886145+00', '', '0']]; ['->  Hash Anti Join  (cost=4144.98..5455.59 rows=14663 width=18)']
+- c2-B3: [['mid1', '13018', '0', '0.026746435'], ['mid2', '37381', '0', '0.0012409925']]; table [['5930460', '901235', '', '2026-11-19 09:18:45.356379+00', '2']]; ['->  Hash Anti Join  (cost=74842.57..76121.66 rows=12868 width=20)']
+- c2-O3: [['followee_mid', '37243', '0', '0.0076956297'], ['follower_mid', '14626', '0', '0.24547064']]; table [['5958764', '0', '2026-11-19 09:21:27.963508+00', '', '0']]; ['->  Hash Anti Join  (cost=4235.37..5546.28 rows=14474 width=18)']
+

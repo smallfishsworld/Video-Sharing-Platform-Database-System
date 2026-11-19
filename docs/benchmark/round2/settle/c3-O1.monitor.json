@@ -1,0 +1,1141 @@
+{
+ "meta": {
+  "label": "c3-O1",
+  "repo": "/home/user/work/Video-Sharing-Platform-Database-System",
+  "code_sha": "4ef3a664af8cdfad422ead41b8644c5eee6da8c6",
+  "porcelain_lines": 0,
+  "jar_sha256": "42004a16eec69e0b4ab324f5266f4a90242bdcc8f0d2b950f8ecd6fc2289f816",
+  "sql": [
+   "/home/user/work/Video-Sharing-Platform-Database-System/sql/build.sql",
+   "/home/user/work/Video-Sharing-Platform-Database-System/sql/audit.sql"
+  ],
+  "variant": "settle",
+  "boot": "2026-11-19 03:20:26",
+  "command": [
+   "flock",
+   "/home/user/work/bench.lock",
+   "/home/user/work/bench6/run_bench.sh",
+   "/home/user/work/Video-Sharing-Platform-Database-System",
+   "c3-O1",
+   "/home/user/work/Video-Sharing-Platform-Database-System/sql/build.sql",
+   "/home/user/work/Video-Sharing-Platform-Database-System/sql/audit.sql"
+  ],
+  "server": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+  "java": "openjdk version \"21.0.13.0.3\" 2026-10-24",
+  "lock_wait_started_epoch": 1795080728.4591284,
+  "harness_output": ":111},{\"id\":12,\"passCnt\":500,\"elapsedTime\":null},{\"id\":13,\"passCnt\":511,\"elapsedTime\":484},{\"id\":14,\"passCnt\":686,\"elapsedTime\":618},{\"id\":15,\"passCnt\":644,\"elapsedTime\":641},{\"id\":16,\"passCnt\":184,\"elapsedTime\":59},{\"id\":17,\"passCnt\":273,\"elapsedTime\":94},{\"id\":18,\"passCnt\":184,\"elapsedTime\":32},{\"id\":19,\"passCnt\":35,\"elapsedTime\":20},{\"id\":20,\"passCnt\":6,\"elapsedTime\":9},{\"id\":21,\"passCnt\":55,\"elapsedTime\":526},{\"id\":22,\"passCnt\":199,\"elapsedTime\":345},{\"id\":23,\"passCnt\":87,\"elapsedTime\":49}]\n",
+  "boot_after": "2026-11-19 03:20:26"
+ },
+ "before": {
+  "pg_stat_wal": {
+   "wal_records": 309580586.0,
+   "wal_fpi": 2650292.0,
+   "wal_bytes": 47729993018.0,
+   "wal_write": 1045054.0,
+   "wal_sync": 362977.0
+  },
+  "pg_stat_bgwriter": {
+   "checkpoints_timed": 62,
+   "checkpoints_req": 91,
+   "buffers_checkpoint": 1460835,
+   "buffers_clean": 0,
+   "buffers_backend": 1935860,
+   "buffers_backend_fsync": 0
+  },
+  "lsn": "13/575699A0",
+  "dirty_kb": 664,
+  "epoch": 1795080729.2772279
+ },
+ "after": {
+  "pg_stat_wal": {
+   "wal_records": 310453295.0,
+   "wal_fpi": 2730122.0,
+   "wal_bytes": 48602275991.0,
+   "wal_write": 1075347.0,
+   "wal_sync": 365686.0
+  },
+  "pg_stat_bgwriter": {
+   "checkpoints_timed": 62,
+   "checkpoints_req": 93,
+   "buffers_checkpoint": 1472404,
+   "buffers_clean": 0,
+   "buffers_backend": 1975374,
+   "buffers_backend_fsync": 0
+  },
+  "lsn": "13/8BA28568",
+  "dirty_kb": 708,
+  "epoch": 1795080749.452122
+ },
+ "pause": {
+  "stopped_epoch": 1795080740.4525914,
+  "step2_started_before_pause": false,
+  "dirty_kb_before": 299596,
+  "checkpoint_exit": 0,
+  "dirty_kb_after": 924,
+  "pause_s": 0.56
+ },
+ "planner": {
+  "before_step_8": {
+   "followings_stats": [
+    [
+     "followee_mid",
+     "37102",
+     "0",
+     "-0.006605598"
+    ],
+    [
+     "follower_mid",
+     "14776",
+     "0",
+     "0.25316522"
+    ]
+   ],
+   "followings_table": [
+    [
+     "5958764",
+     "0",
+     "2026-11-19 09:32:20.410886+00",
+     "",
+     "0"
+    ]
+   ],
+   "friend_plan": [
+    "Limit  (cost=5802.57..5802.59 rows=10 width=18)",
+    "  ->  Sort  (cost=5802.57..5839.13 rows=14623 width=18)",
+    "        Sort Key: (count(*)) DESC, u.level DESC, o.follower_mid",
+    "        ->  Hash Anti Join  (cost=4210.60..5486.57 rows=14623 width=18)",
+    "              Hash Cond: (o.follower_mid = x.followee_mid)",
+    "              ->  Hash Join  (cost=4190.67..5244.93 rows=14776 width=18)",
+    "                    Hash Cond: (u.mid = o.follower_mid)",
+    "                    ->  Seq Scan on users u  (cost=0.00..954.81 rows=37881 width=10)",
+    "                    ->  Hash  (cost=4005.97..4005.97 rows=14776 width=16)",
+    "                          ->  HashAggregate  (cost=3858.21..4005.97 rows=14776 width=16)",
+    "                                Group Key: o.follower_mid",
+    "                                ->  Nested Loop  (cost=0.86..3550.67 rows=61508 width=8)",
+    "                                      ->  Index Only Scan using followings_pkey on followings mine  (cost=0.43..15.13 rows=383 width=8)",
+    "                                            Index Cond: (follower_mid = 18398)",
+    "                                      ->  Index Only Scan using followings_followee_idx on followings o  (cost=0.43..7.62 rows=161 width=16)",
+    "                                            Index Cond: (followee_mid = mine.followee_mid)",
+    "                                            Filter: (follower_mid <> 18398)",
+    "              ->  Hash  (cost=15.13..15.13 rows=383 width=8)",
+    "                    ->  Index Only Scan using followings_pkey on followings x  (cost=0.43..15.13 rows=383 width=8)",
+    "                          Index Cond: (follower_mid = 18398)"
+   ]
+  },
+  "after_step_8": {
+   "followings_stats": [
+    [
+     "followee_mid",
+     "37102",
+     "0",
+     "-0.006605598"
+    ],
+    [
+     "follower_mid",
+     "14776",
+     "0",
+     "0.25316522"
+    ]
+   ],
+   "followings_table": [
+    [
+     "5958764",
+     "0",
+     "2026-11-19 09:32:20.410886+00",
+     "",
+     "0"
+    ]
+   ]
+  }
+ },
+ "events": [
+  {
+   "kind": "start",
+   "step": 0,
+   "epoch": 1795080731.7800562,
+   "log_epoch": 1795080731.77,
+   "lsn": "13/575699A0",
+   "dirty_kb": 672
+  },
+  {
+   "kind": "start",
+   "step": 1,
+   "epoch": 1795080732.128021,
+   "log_epoch": 1795080732.124,
+   "lsn": "13/57574DB0",
+   "dirty_kb": 704
+  },
+  {
+   "kind": "end",
+   "step": 1,
+   "epoch": 1795080740.4271317,
+   "log_epoch": 1795080740.421,
+   "lsn": "13/840D7BA8",
+   "dirty_kb": 299588
+  },
+  {
+   "kind": "start",
+   "step": 2,
+   "epoch": 1795080741.0277011,
+   "log_epoch": 1795080741.021,
+   "lsn": "13/840D7D08",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "end",
+   "step": 2,
+   "epoch": 1795080741.0954149,
+   "log_epoch": 1795080741.084,
+   "lsn": "13/840DB440",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "start",
+   "step": 3,
+   "epoch": 1795080741.0962415,
+   "log_epoch": 1795080741.084,
+   "lsn": "13/840DB440",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "end",
+   "step": 3,
+   "epoch": 1795080741.1067932,
+   "log_epoch": 1795080741.101,
+   "lsn": "13/840DB440",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "start",
+   "step": 4,
+   "epoch": 1795080741.1072161,
+   "log_epoch": 1795080741.102,
+   "lsn": "13/840DB440",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "end",
+   "step": 4,
+   "epoch": 1795080741.1298122,
+   "log_epoch": 1795080741.124,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "start",
+   "step": 5,
+   "epoch": 1795080741.1302845,
+   "log_epoch": 1795080741.124,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "end",
+   "step": 5,
+   "epoch": 1795080741.151906,
+   "log_epoch": 1795080741.15,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "start",
+   "step": 6,
+   "epoch": 1795080741.1533175,
+   "log_epoch": 1795080741.151,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 924
+  },
+  {
+   "kind": "end",
+   "step": 6,
+   "epoch": 1795080741.16535,
+   "log_epoch": 1795080741.162,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 920
+  },
+  {
+   "kind": "start",
+   "step": 7,
+   "epoch": 1795080741.1760368,
+   "log_epoch": 1795080741.169,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 920
+  },
+  {
+   "kind": "end",
+   "step": 7,
+   "epoch": 1795080741.230917,
+   "log_epoch": 1795080741.222,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 928
+  },
+  {
+   "kind": "start",
+   "step": 8,
+   "epoch": 1795080741.2441673,
+   "log_epoch": 1795080741.223,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 928
+  },
+  {
+   "kind": "end",
+   "step": 8,
+   "epoch": 1795080741.7678018,
+   "log_epoch": 1795080741.762,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 968
+  },
+  {
+   "kind": "start",
+   "step": 9,
+   "epoch": 1795080741.7705455,
+   "log_epoch": 1795080741.763,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 968
+  },
+  {
+   "kind": "end",
+   "step": 9,
+   "epoch": 1795080741.8332534,
+   "log_epoch": 1795080741.83,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 968
+  },
+  {
+   "kind": "start",
+   "step": 10,
+   "epoch": 1795080741.8338175,
+   "log_epoch": 1795080741.831,
+   "lsn": "13/840DCAB0",
+   "dirty_kb": 968,
+   "counters": {
+    "pg_stat_wal": {
+     "wal_records": 309794079.0,
+     "wal_fpi": 2718946.0,
+     "wal_bytes": 48476791933.0,
+     "wal_write": 1072801.0,
+     "wal_sync": 363141.0
+    },
+    "pg_stat_bgwriter": {
+     "checkpoints_timed": 62,
+     "checkpoints_req": 93,
+     "buffers_checkpoint": 1472404,
+     "buffers_clean": 0,
+     "buffers_backend": 1975374,
+     "buffers_backend_fsync": 0
+    },
+    "lsn": "13/840DCAB0",
+    "dirty_kb": 968,
+    "epoch": 1795080741.834418
+   }
+  },
+  {
+   "kind": "end",
+   "step": 10,
+   "epoch": 1795080742.1447244,
+   "log_epoch": 1795080742.142,
+   "lsn": "13/84322520",
+   "dirty_kb": 1088
+  },
+  {
+   "kind": "start",
+   "step": 11,
+   "epoch": 1795080742.1460688,
+   "log_epoch": 1795080742.142,
+   "lsn": "13/84322520",
+   "dirty_kb": 1088
+  },
+  {
+   "kind": "end",
+   "step": 11,
+   "epoch": 1795080742.2669454,
+   "log_epoch": 1795080742.262,
+   "lsn": "13/84323FB8",
+   "dirty_kb": 1088
+  },
+  {
+   "kind": "start",
+   "step": 12,
+   "epoch": 1795080742.2675679,
+   "log_epoch": 1795080742.264,
+   "lsn": "13/84323FB8",
+   "dirty_kb": 1088
+  },
+  {
+   "kind": "end",
+   "step": 12,
+   "epoch": 1795080742.4915812,
+   "log_epoch": 1795080742.485,
+   "lsn": "13/84452E80",
+   "dirty_kb": 1136
+  },
+  {
+   "kind": "start",
+   "step": 13,
+   "epoch": 1795080742.492102,
+   "log_epoch": 1795080742.489,
+   "lsn": "13/84452E80",
+   "dirty_kb": 1136
+  },
+  {
+   "kind": "end",
+   "step": 13,
+   "epoch": 1795080742.9848313,
+   "log_epoch": 1795080742.974,
+   "lsn": "13/84B4C750",
+   "dirty_kb": 1236
+  },
+  {
+   "kind": "start",
+   "step": 14,
+   "epoch": 1795080742.9853675,
+   "log_epoch": 1795080742.977,
+   "lsn": "13/84B4C750",
+   "dirty_kb": 1236
+  },
+  {
+   "kind": "end",
+   "step": 14,
+   "epoch": 1795080743.6060476,
+   "log_epoch": 1795080743.596,
+   "lsn": "13/852D8920",
+   "dirty_kb": 1260
+  },
+  {
+   "kind": "start",
+   "step": 15,
+   "epoch": 1795080743.6065388,
+   "log_epoch": 1795080743.598,
+   "lsn": "13/852D89C8",
+   "dirty_kb": 1260
+  },
+  {
+   "kind": "end",
+   "step": 15,
+   "epoch": 1795080744.2475753,
+   "log_epoch": 1795080744.242,
+   "lsn": "13/859F3C70",
+   "dirty_kb": 1284
+  },
+  {
+   "kind": "start",
+   "step": 16,
+   "epoch": 1795080744.248168,
+   "log_epoch": 1795080744.243,
+   "lsn": "13/859F3C70",
+   "dirty_kb": 1284
+  },
+  {
+   "kind": "end",
+   "step": 16,
+   "epoch": 1795080744.312135,
+   "log_epoch": 1795080744.306,
+   "lsn": "13/859FEC08",
+   "dirty_kb": 1292
+  },
+  {
+   "kind": "start",
+   "step": 17,
+   "epoch": 1795080744.3128083,
+   "log_epoch": 1795080744.307,
+   "lsn": "13/85A006E0",
+   "dirty_kb": 1292
+  },
+  {
+   "kind": "end",
+   "step": 17,
+   "epoch": 1795080744.4096465,
+   "log_epoch": 1795080744.406,
+   "lsn": "13/85A1D908",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "start",
+   "step": 18,
+   "epoch": 1795080744.4102783,
+   "log_epoch": 1795080744.407,
+   "lsn": "13/85A1D908",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "end",
+   "step": 18,
+   "epoch": 1795080744.441137,
+   "log_epoch": 1795080744.44,
+   "lsn": "13/85A1EBC8",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "start",
+   "step": 19,
+   "epoch": 1795080744.4518998,
+   "log_epoch": 1795080744.441,
+   "lsn": "13/85A1FF18",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "end",
+   "step": 19,
+   "epoch": 1795080744.4727063,
+   "log_epoch": 1795080744.462,
+   "lsn": "13/85A22650",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "start",
+   "step": 20,
+   "epoch": 1795080744.474134,
+   "log_epoch": 1795080744.463,
+   "lsn": "13/85A22650",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "end",
+   "step": 20,
+   "epoch": 1795080744.484687,
+   "log_epoch": 1795080744.473,
+   "lsn": "13/85A228B0",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "start",
+   "step": 21,
+   "epoch": 1795080744.4858243,
+   "log_epoch": 1795080744.474,
+   "lsn": "13/85A228E8",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "end",
+   "step": 21,
+   "epoch": 1795080745.005996,
+   "log_epoch": 1795080745.001,
+   "lsn": "13/89B6BBF0",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "start",
+   "step": 22,
+   "epoch": 1795080745.0068128,
+   "log_epoch": 1795080745.003,
+   "lsn": "13/89B6BC28",
+   "dirty_kb": 1308
+  },
+  {
+   "kind": "end",
+   "step": 22,
+   "epoch": 1795080745.3526518,
+   "log_epoch": 1795080745.35,
+   "lsn": "13/8B986280",
+   "dirty_kb": 1420
+  },
+  {
+   "kind": "start",
+   "step": 23,
+   "epoch": 1795080745.3535023,
+   "log_epoch": 1795080745.351,
+   "lsn": "13/8B986280",
+   "dirty_kb": 1420
+  },
+  {
+   "kind": "end",
+   "step": 23,
+   "epoch": 1795080745.4055037,
+   "log_epoch": 1795080745.401,
+   "lsn": "13/8BA28568",
+   "dirty_kb": 1420,
+   "counters": {
+    "pg_stat_wal": {
+     "wal_records": 310432754.0,
+     "wal_fpi": 2726355.0,
+     "wal_bytes": 48570204524.0,
+     "wal_write": 1075284.0,
+     "wal_sync": 365623.0
+    },
+    "pg_stat_bgwriter": {
+     "checkpoints_timed": 62,
+     "checkpoints_req": 93,
+     "buffers_checkpoint": 1472404,
+     "buffers_clean": 0,
+     "buffers_backend": 1975374,
+     "buffers_backend_fsync": 0
+    },
+    "lsn": "13/8BA28568",
+    "dirty_kb": 1420,
+    "epoch": 1795080745.4075499
+   }
+  }
+ ],
+ "steps": {
+  "1": {
+   "lsn_start": "13/57574DB0",
+   "lsn_end": "13/840D7BA8",
+   "wal": {
+    "error": "pg_waldump: error: could not find file \"000000010000001300000057\": No such file or directory\n"
+   },
+   "dirty_kb_start": 704,
+   "log_start_epoch": 1795080732.124,
+   "log_end_epoch": 1795080740.421
+  },
+  "2": {
+   "lsn_start": "13/840D7D08",
+   "lsn_end": "13/840DB440",
+   "wal": {
+    "records": 2,
+    "record_bytes": 120,
+    "fpi_bytes": 13964,
+    "bytes": 14084
+   },
+   "dirty_kb_start": 924,
+   "log_start_epoch": 1795080741.021,
+   "log_end_epoch": 1795080741.084
+  },
+  "3": {
+   "lsn_start": "13/840DB440",
+   "lsn_end": "13/840DB440",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 924,
+   "log_start_epoch": 1795080741.084,
+   "log_end_epoch": 1795080741.101
+  },
+  "4": {
+   "lsn_start": "13/840DB440",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 1,
+    "record_bytes": 60,
+    "fpi_bytes": 5656,
+    "bytes": 5716
+   },
+   "dirty_kb_start": 924,
+   "log_start_epoch": 1795080741.102,
+   "log_end_epoch": 1795080741.124
+  },
+  "5": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 924,
+   "log_start_epoch": 1795080741.124,
+   "log_end_epoch": 1795080741.15
+  },
+  "6": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 924,
+   "log_start_epoch": 1795080741.151,
+   "log_end_epoch": 1795080741.162
+  },
+  "7": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 920,
+   "log_start_epoch": 1795080741.169,
+   "log_end_epoch": 1795080741.222
+  },
+  "8": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 928,
+   "log_start_epoch": 1795080741.223,
+   "log_end_epoch": 1795080741.762
+  },
+  "9": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/840DCAB0",
+   "wal": {
+    "records": 0,
+    "record_bytes": 0,
+    "fpi_bytes": 0,
+    "bytes": 0
+   },
+   "dirty_kb_start": 968,
+   "log_start_epoch": 1795080741.763,
+   "log_end_epoch": 1795080741.83
+  },
+  "10": {
+   "lsn_start": "13/840DCAB0",
+   "lsn_end": "13/84322520",
+   "wal": {
+    "records": 3263,
+    "record_bytes": 261856,
+    "fpi_bytes": 2108184,
+    "bytes": 2370040
+   },
+   "dirty_kb_start": 968,
+   "log_start_epoch": 1795080741.831,
+   "log_end_epoch": 1795080742.142
+  },
+  "11": {
+   "lsn_start": "13/84322520",
+   "lsn_end": "13/84323FB8",
+   "wal": {
+    "records": 1,
+    "record_bytes": 60,
+    "fpi_bytes": 6748,
+    "bytes": 6808
+   },
+   "dirty_kb_start": 1088,
+   "log_start_epoch": 1795080742.142,
+   "log_end_epoch": 1795080742.262
+  },
+  "12": {
+   "lsn_start": "13/84323FB8",
+   "lsn_end": "13/84452E80",
+   "wal": {
+    "records": 1892,
+    "record_bytes": 111795,
+    "fpi_bytes": 1122084,
+    "bytes": 1233879
+   },
+   "dirty_kb_start": 1088,
+   "log_start_epoch": 1795080742.264,
+   "log_end_epoch": 1795080742.485
+  },
+  "13": {
+   "lsn_start": "13/84452E80",
+   "lsn_end": "13/84B4C750",
+   "wal": {
+    "records": 4692,
+    "record_bytes": 333347,
+    "fpi_bytes": 6944428,
+    "bytes": 7277775
+   },
+   "dirty_kb_start": 1136,
+   "log_start_epoch": 1795080742.489,
+   "log_end_epoch": 1795080742.974
+  },
+  "14": {
+   "lsn_start": "13/84B4C750",
+   "lsn_end": "13/852D8920",
+   "wal": {
+    "records": 4959,
+    "record_bytes": 281227,
+    "fpi_bytes": 7594924,
+    "bytes": 7876151
+   },
+   "dirty_kb_start": 1236,
+   "log_start_epoch": 1795080742.977,
+   "log_end_epoch": 1795080743.596
+  },
+  "15": {
+   "lsn_start": "13/852D89C8",
+   "lsn_end": "13/859F3C70",
+   "wal": {
+    "records": 4646,
+    "record_bytes": 263539,
+    "fpi_bytes": 7152464,
+    "bytes": 7416003
+   },
+   "dirty_kb_start": 1260,
+   "log_start_epoch": 1795080743.598,
+   "log_end_epoch": 1795080744.242
+  },
+  "16": {
+   "lsn_start": "13/859F3C70",
+   "lsn_end": "13/859FEC08",
+   "wal": {
+    "records": 357,
+    "record_bytes": 28850,
+    "fpi_bytes": 15392,
+    "bytes": 44242
+   },
+   "dirty_kb_start": 1284,
+   "log_start_epoch": 1795080744.243,
+   "log_end_epoch": 1795080744.306
+  },
+  "17": {
+   "lsn_start": "13/85A006E0",
+   "lsn_end": "13/85A1D908",
+   "wal": {
+    "records": 795,
+    "record_bytes": 65331,
+    "fpi_bytes": 51920,
+    "bytes": 117251
+   },
+   "dirty_kb_start": 1292,
+   "log_start_epoch": 1795080744.307,
+   "log_end_epoch": 1795080744.406
+  },
+  "18": {
+   "lsn_start": "13/85A1D908",
+   "lsn_end": "13/85A1EBC8",
+   "wal": {
+    "records": 60,
+    "record_bytes": 4619,
+    "fpi_bytes": 0,
+    "bytes": 4619
+   },
+   "dirty_kb_start": 1308,
+   "log_start_epoch": 1795080744.407,
+   "log_end_epoch": 1795080744.44
+  },
+  "19": {
+   "lsn_start": "13/85A1FF18",
+   "lsn_end": "13/85A22650",
+   "wal": {
+    "records": 138,
+    "record_bytes": 9728,
+    "fpi_bytes": 0,
+    "bytes": 9728
+   },
+   "dirty_kb_start": 1308,
+   "log_start_epoch": 1795080744.441,
+   "log_end_epoch": 1795080744.462
+  },
+  "20": {
+   "lsn_start": "13/85A22650",
+   "lsn_end": "13/85A228B0",
+   "wal": {
+    "records": 12,
+    "record_bytes": 568,
+    "fpi_bytes": 0,
+    "bytes": 568
+   },
+   "dirty_kb_start": 1308,
+   "log_start_epoch": 1795080744.463,
+   "log_end_epoch": 1795080744.473
+  },
+  "21": {
+   "lsn_start": "13/85A228E8",
+   "lsn_end": "13/89B6BBF0",
+   "wal": {
+    "records": 617434,
+    "record_bytes": 33365465,
+    "fpi_bytes": 33652384,
+    "bytes": 67017849
+   },
+   "dirty_kb_start": 1308,
+   "log_start_epoch": 1795080744.474,
+   "log_end_epoch": 1795080745.001
+  },
+  "22": {
+   "lsn_start": "13/89B6BC28",
+   "lsn_end": "13/8B986280",
+   "wal": {
+    "records": 20600,
+    "record_bytes": 1392384,
+    "fpi_bytes": 30043512,
+    "bytes": 31435896
+   },
+   "dirty_kb_start": 1308,
+   "log_start_epoch": 1795080745.003,
+   "log_end_epoch": 1795080745.35
+  },
+  "23": {
+   "lsn_start": "13/8B986280",
+   "lsn_end": "13/8BA28568",
+   "wal": {
+    "records": 284,
+    "record_bytes": 14947,
+    "fpi_bytes": 646380,
+    "bytes": 661327
+   },
+   "dirty_kb_start": 1420,
+   "log_start_epoch": 1795080745.351,
+   "log_end_epoch": 1795080745.401
+  }
+ },
+ "checkpoints": [
+  {
+   "epoch": 1795080213.413,
+   "utc": "2026-11-19 09:23:33.413",
+   "line": "checkpoint complete: wrote 1906 buffers (1.5%); 0 WAL file(s) added, 4 removed, 29 recycled; write=125.618 s, sync=1.055 s, total=127.004 s; sync files=144, longest=0.341 s, average=0.008 s; distance=539321 kB, estimate=546994 kB; lsn=11/C838AC50, redo lsn=11/A65C1060"
+  },
+  {
+   "epoch": 1795080213.425,
+   "utc": "2026-11-19 09:23:33.425",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080313.907,
+   "utc": "2026-11-19 09:25:13.907",
+   "line": "checkpoint complete: wrote 8910 buffers (6.8%); 0 WAL file(s) added, 5 removed, 32 recycled; write=100.089 s, sync=0.318 s, total=100.495 s; sync files=197, longest=0.147 s, average=0.002 s; distance=608084 kB, estimate=608084 kB; lsn=11/EA53D8F0, redo lsn=11/CB796410"
+  },
+  {
+   "epoch": 1795080313.907,
+   "utc": "2026-11-19 09:25:13.907",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080318.622,
+   "utc": "2026-11-19 09:25:18.622",
+   "line": "checkpoint complete: wrote 9480 buffers (7.2%); 0 WAL file(s) added, 1 removed, 30 recycled; write=4.307 s, sync=0.346 s, total=4.715 s; sync files=117, longest=0.175 s, average=0.003 s; distance=511106 kB, estimate=598387 kB; lsn=12/B060760, redo lsn=11/EAAB6E58"
+  },
+  {
+   "epoch": 1795080318.622,
+   "utc": "2026-11-19 09:25:18.622",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080426.086,
+   "utc": "2026-11-19 09:27:06.086",
+   "line": "checkpoint complete: wrote 1091 buffers (0.8%); 0 WAL file(s) added, 0 removed, 33 recycled; write=107.039 s, sync=0.340 s, total=107.464 s; sync files=89, longest=0.037 s, average=0.004 s; distance=534449 kB, estimate=591993 kB; lsn=12/297B20C0, redo lsn=12/B4A3278"
+  },
+  {
+   "epoch": 1795080426.836,
+   "utc": "2026-11-19 09:27:06.836",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080435.917,
+   "utc": "2026-11-19 09:27:15.917",
+   "line": "checkpoint complete: wrote 24157 buffers (18.4%); 0 WAL file(s) added, 0 removed, 33 recycled; write=8.775 s, sync=0.271 s, total=9.081 s; sync files=106, longest=0.040 s, average=0.003 s; distance=536011 kB, estimate=586395 kB; lsn=12/49E3F9C8, redo lsn=12/2C0161C0"
+  },
+  {
+   "epoch": 1795080437.048,
+   "utc": "2026-11-19 09:27:17.048",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080454.995,
+   "utc": "2026-11-19 09:27:34.995",
+   "line": "checkpoint complete: wrote 25411 buffers (19.4%); 0 WAL file(s) added, 0 removed, 33 recycled; write=17.676 s, sync=0.249 s, total=17.948 s; sync files=16, longest=0.078 s, average=0.016 s; distance=540687 kB, estimate=581824 kB; lsn=12/6AC4EA48, redo lsn=12/4D01A1A8"
+  },
+  {
+   "epoch": 1795080457.469,
+   "utc": "2026-11-19 09:27:37.469",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080480.962,
+   "utc": "2026-11-19 09:28:00.962",
+   "line": "checkpoint complete: wrote 25048 buffers (19.1%); 0 WAL file(s) added, 0 removed, 33 recycled; write=23.197 s, sync=0.266 s, total=23.494 s; sync files=20, longest=0.114 s, average=0.014 s; distance=540569 kB, estimate=577698 kB; lsn=12/8BCC2CD0, redo lsn=12/6E000630"
+  },
+  {
+   "epoch": 1795080484.064,
+   "utc": "2026-11-19 09:28:04.064",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080507.036,
+   "utc": "2026-11-19 09:28:27.036",
+   "line": "checkpoint complete: wrote 51751 buffers (39.5%); 0 WAL file(s) added, 0 removed, 33 recycled; write=22.708 s, sync=0.226 s, total=22.972 s; sync files=57, longest=0.089 s, average=0.004 s; distance=540672 kB, estimate=573996 kB; lsn=12/ACD23AB8, redo lsn=12/8F000678"
+  },
+  {
+   "epoch": 1795080607.213,
+   "utc": "2026-11-19 09:30:07.213",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080617.049,
+   "utc": "2026-11-19 09:30:17.049",
+   "line": "checkpoint complete: wrote 1622 buffers (1.2%); 0 WAL file(s) added, 0 removed, 33 recycled; write=9.274 s, sync=0.445 s, total=9.837 s; sync files=173, longest=0.038 s, average=0.003 s; distance=541188 kB, estimate=570715 kB; lsn=12/CE874F38, redo lsn=12/B0081A28"
+  },
+  {
+   "epoch": 1795080617.699,
+   "utc": "2026-11-19 09:30:17.699",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080627.817,
+   "utc": "2026-11-19 09:30:27.817",
+   "line": "checkpoint complete: wrote 25589 buffers (19.5%); 0 WAL file(s) added, 0 removed, 33 recycled; write=9.784 s, sync=0.293 s, total=10.118 s; sync files=32, longest=0.047 s, average=0.010 s; distance=540233 kB, estimate=567667 kB; lsn=12/EF051650, redo lsn=12/D1013F78"
+  },
+  {
+   "epoch": 1795080628.999,
+   "utc": "2026-11-19 09:30:28.999",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080647.849,
+   "utc": "2026-11-19 09:30:47.849",
+   "line": "checkpoint complete: wrote 25754 buffers (19.6%); 0 WAL file(s) added, 0 removed, 33 recycled; write=18.577 s, sync=0.246 s, total=18.850 s; sync files=27, longest=0.077 s, average=0.010 s; distance=540642 kB, estimate=564964 kB; lsn=13/FD54030, redo lsn=12/F200C7E0"
+  },
+  {
+   "epoch": 1795080650.364,
+   "utc": "2026-11-19 09:30:50.364",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080673.805,
+   "utc": "2026-11-19 09:31:13.805",
+   "line": "checkpoint complete: wrote 43758 buffers (33.4%); 0 WAL file(s) added, 0 removed, 33 recycled; write=23.170 s, sync=0.246 s, total=23.442 s; sync files=61, longest=0.100 s, average=0.005 s; distance=540669 kB, estimate=562535 kB; lsn=13/30D82B00, redo lsn=13/1300BFB8"
+  },
+  {
+   "epoch": 1795080676.269,
+   "utc": "2026-11-19 09:31:16.269",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080697.381,
+   "utc": "2026-11-19 09:31:37.381",
+   "line": "checkpoint complete: wrote 26267 buffers (20.0%); 0 WAL file(s) added, 0 removed, 33 recycled; write=20.866 s, sync=0.220 s, total=21.112 s; sync files=6, longest=0.086 s, average=0.037 s; distance=540684 kB, estimate=560350 kB; lsn=13/5009A470, redo lsn=13/3400F218"
+  },
+  {
+   "epoch": 1795080697.381,
+   "utc": "2026-11-19 09:31:37.381",
+   "line": "checkpoint starting: immediate force wait"
+  },
+  {
+   "epoch": 1795080697.595,
+   "utc": "2026-11-19 09:31:37.595",
+   "line": "checkpoint complete: wrote 22838 buffers (17.4%); 0 WAL file(s) added, 0 removed, 28 recycled; write=0.091 s, sync=0.113 s, total=0.215 s; sync files=7, longest=0.112 s, average=0.017 s; distance=459308 kB, estimate=550246 kB; lsn=13/5009A520, redo lsn=13/5009A4E8"
+  },
+  {
+   "epoch": 1795080737.421,
+   "utc": "2026-11-19 09:32:17.421",
+   "line": "checkpoint starting: wal"
+  },
+  {
+   "epoch": 1795080740.99,
+   "utc": "2026-11-19 09:32:20.990",
+   "line": "checkpoint complete: wrote 11450 buffers (8.7%); 0 WAL file(s) added, 0 removed, 34 recycled; write=3.137 s, sync=0.415 s, total=3.573 s; sync files=266, longest=0.278 s, average=0.002 s; distance=557255 kB, estimate=557255 kB; lsn=13/840D7BE0, redo lsn=13/720CC458"
+  },
+  {
+   "epoch": 1795080740.99,
+   "utc": "2026-11-19 09:32:20.990",
+   "line": "checkpoint starting: immediate force wait"
+  },
+  {
+   "epoch": 1795080741.009,
+   "utc": "2026-11-19 09:32:21.009",
+   "line": "checkpoint complete: wrote 123 buffers (0.1%); 0 WAL file(s) added, 0 removed, 18 recycled; write=0.005 s, sync=0.006 s, total=0.020 s; sync files=53, longest=0.002 s, average=0.001 s; distance=294958 kB, estimate=531026 kB; lsn=13/840D7C90, redo lsn=13/840D7C58"
+  }
+ ],
+ "report": [
+  {
+   "id": 1,
+   "passCnt": null,
+   "elapsedTime": 7870
+  },
+  {
+   "id": 2,
+   "passCnt": 20,
+   "elapsedTime": 58
+  },
+  {
+   "id": 3,
+   "passCnt": 61,
+   "elapsedTime": 16
+  },
+  {
+   "id": 4,
+   "passCnt": 56,
+   "elapsedTime": 17
+  },
+  {
+   "id": 5,
+   "passCnt": 43,
+   "elapsedTime": 23
+  },
+  {
+   "id": 6,
+   "passCnt": 11,
+   "elapsedTime": 7
+  },
+  {
+   "id": 7,
+   "passCnt": 27,
+   "elapsedTime": 49
+  },
+  {
+   "id": 8,
+   "passCnt": 142,
+   "elapsedTime": 536
+  },
+  {
+   "id": 9,
+   "passCnt": 382,
+   "elapsedTime": 64
+  },
+  {
+   "id": 10,
+   "passCnt": 1016,
+   "elapsedTime": 306
+  },
+  {
+   "id": 11,
+   "passCnt": 500,
+   "elapsedTime": 111
+  },
+  {
+   "id": 12,
+   "passCnt": 500,
+   "elapsedTime": null
+  },
+  {
+   "id": 13,
+   "passCnt": 511,
+   "elapsedTime": 484
+  },
+  {
+   "id": 14,
+   "passCnt": 686,
+   "elapsedTime": 618
+  },
+  {
+   "id": 15,
+   "passCnt": 644,
+   "elapsedTime": 641
+  },
+  {
+   "id": 16,
+   "passCnt": 184,
+   "elapsedTime": 59
+  },
+  {
+   "id": 17,
+   "passCnt": 273,
+   "elapsedTime": 94
+  },
+  {
+   "id": 18,
+   "passCnt": 184,
+   "elapsedTime": 32
+  },
+  {
+   "id": 19,
+   "passCnt": 35,
+   "elapsedTime": 20
+  },
+  {
+   "id": 20,
+   "passCnt": 6,
+   "elapsedTime": 9
+  },
+  {
+   "id": 21,
+   "passCnt": 55,
+   "elapsedTime": 526
+  },
+  {
+   "id": 22,
+   "passCnt": 199,
+   "elapsedTime": 345
+  },
+  {
+   "id": 23,
+   "passCnt": 87,
+   "elapsedTime": 49
+  }
+ ]
+}

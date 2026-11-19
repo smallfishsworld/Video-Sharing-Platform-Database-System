@@ -1,0 +1,58 @@
+## docs/benchmark/round2/settle
+
+boots (before and after each run): 2026-11-19 03:20:26
+B: commit, jar sha256 prefix, uncommitted tracked paths: [('3796695', '13515c673cd6d488', 0)]
+O: commit, jar sha256 prefix, uncommitted tracked paths: [('4ef3a66', '42004a16eec69e0b', 0)]
+order: c3-B1, c3-O1, c3-B2, c3-O2, c3-B3, c3-O3
+
+| run | read steps ms | write steps ms | all 21 timed steps ms | cases passed |
+|---|---:|---:|---:|---:|
+| c3-B1 | 18,657 | 2,804 | 21,461 | 5618 |
+| c3-O1 | 890 | 3,174 | 4,064 | 5622 |
+| c3-B2 | 17,263 | 2,744 | 20,007 | 5618 |
+| c3-O2 | 1,027 | 3,267 | 4,294 | 5622 |
+| c3-B3 | 17,906 | 2,988 | 20,894 | 5618 |
+| c3-O3 | 1,035 | 3,041 | 4,076 | 5622 |
+
+WAL per write step, kB (pg_waldump: all records; FPI: the full-page images among them)
+
+| step | B: WAL | B: FPI | O: WAL | O: FPI |
+|---|---:|---:|---:|---:|
+| 10 danmu send | 106 [106-122] | 0 [0-14] | 2,315 [2,314-2,318] | 2,059 [2,059-2,062] |
+| 13 coin | 7,490 [7,383-7,646] | 7,189 [7,083-7,343] | 7,037 [6,986-7,107] | 6,715 [6,663-6,782] |
+| 14 like | 6,128 [6,108-6,242] | 5,961 [5,941-6,073] | 7,692 [7,667-7,706] | 7,417 [7,393-7,431] |
+| 15 collect | 5,989 [5,953-6,007] | 5,826 [5,791-5,844] | 7,242 [7,224-7,251] | 6,985 [6,963-6,992] |
+| 16 post video | 23 [13-24] | 10 [0-11] | 34 [32-43] | 8 [8-15] |
+| 17 register | 166 [161-170] | 101 [93-101] | 115 [111-116] | 51 |
+| 18 update video | 3 [2-12] | 0 [0-8] | 5 [4-5] | 0 |
+| 19 review | 5 [4-6] | 0 | 11 [10-13] | 0 |
+| 21 delete video | 64,884 [64,884-64,884] | 32,553 | 65,447 [65,447-65,448] | 32,864 |
+| 22 delete account | 29,912 [29,893-29,979] | 29,408 [29,389-29,474] | 30,718 [30,699-30,732] | 29,358 [29,339-29,373] |
+| 23 follow | 599 [532-599] | 590 [524-590] | 612 [604-646] | 598 [590-631] |
+| all write steps | 115,382 [115,198-115,454] | 81,715 [81,527-81,782] | 121,213 [121,179-121,319] | 86,042 [86,000-86,142] |
+
+Checkpoints in the server log, seconds relative to the start of step 10 (write steps end at the second given in brackets); Dirty from /proc/meminfo at the start of step 10
+
+- c3-B1: write steps 0 to 3.5 s; end -289; start -289 (wal); end -279; start -278 (wal); end -260; start -258 (wal); end -234; start -231 (wal); end -208; start -108 (wal); end -98; start -98 (wal); end -88; start -86 (wal); end -68; start -65 (wal); end -42; start -39 (wal); end -18; start -18 (immediate force wait); end -18; Dirty 1,080 kB; pg_stat_wal wal_fpi delta over the write steps 4804.0
+- c3-O1: write steps 0 to 3.6 s; end -287; start -284 (wal); end -261; start -258 (wal); end -235; start -135 (wal); end -125; start -124 (wal); end -114; start -113 (wal); end -94; start -91 (wal); end -68; start -66 (wal); end -44; start -44 (immediate force wait); end -44; start -4 (wal); end -1; start -1 (immediate force wait); end -1; Dirty 968 kB; pg_stat_wal wal_fpi delta over the write steps 7409.0
+- c3-B2: write steps 0 to 3.5 s; start -256 (wal); end -246; start -245 (wal); end -235; start -234 (wal); end -215; start -213 (wal); end -189; start -187 (wal); end -166; start -166 (immediate force wait); end -165; start -126 (wal); end -122; start -122 (immediate force wait); end -122; start -96 (wal); end -87; start -86 (wal); end -71; start -69 (wal); end -47; start -44 (wal); end -23; start -20 (wal); end -17; start -17 (immediate force wait); end -17; Dirty 488 kB; pg_stat_wal wal_fpi delta over the write steps 5784.0
+- c3-O2: write steps 0 to 3.7 s; start -282 (wal); end -273; start -272 (wal); end -262; start -261 (wal); end -242; start -239 (wal); end -216; start -213 (wal); end -192; start -192 (immediate force wait); end -192; start -152 (wal); end -149; start -149 (immediate force wait); end -149; start -122 (wal); end -114; start -113 (wal); end -98; start -96 (wal); end -73; start -71 (wal); end -49; start -47 (wal); end -43; start -43 (immediate force wait); end -43; start -5 (wal); end -1; start -1 (immediate force wait); end -1; Dirty 1,164 kB; pg_stat_wal wal_fpi delta over the write steps 5369.0
+- c3-B3: write steps 0 to 3.8 s; start -276 (wal); end -272; start -272 (immediate force wait); end -272; start -246 (wal); end -237; start -236 (wal); end -221; start -219 (wal); end -197; start -194 (wal); end -173; start -170 (wal); end -167; start -167 (immediate force wait); end -167; start -128 (wal); end -124; start -124 (immediate force wait); end -124; start -98 (wal); end -90; start -89 (wal); end -74; start -71 (wal); end -49; start -46 (wal); end -24; start -21 (wal); end -18; start -18 (immediate force wait); end -18; Dirty 364 kB; pg_stat_wal wal_fpi delta over the write steps 8511.0
+- c3-O3: write steps 0 to 3.6 s; end -299; start -299 (immediate force wait); end -299; start -273 (wal); end -264; start -263 (wal); end -248; start -246 (wal); end -224; start -221 (wal); end -200; start -197 (wal); end -194; start -194 (immediate force wait); end -194; start -155 (wal); end -151; start -151 (immediate force wait); end -151; start -125 (wal); end -117; start -116 (wal); end -101; start -98 (wal); end -76; start -73 (wal); end -51; start -48 (wal); end -45; start -45 (immediate force wait); end -45; start -5 (wal); end -1; start -1 (immediate force wait); end -1; Dirty 968 kB; pg_stat_wal wal_fpi delta over the write steps 7414.0
+
+Pause after step 1:
+- c3-B1: {"stopped_epoch": 1795080697.0496614, "step2_started_before_pause": true, "dirty_kb_before": 163104, "checkpoint_exit": 0, "dirty_kb_after": 7156, "pause_s": 0.547}
+- c3-O1: {"stopped_epoch": 1795080740.4525914, "step2_started_before_pause": false, "dirty_kb_before": 299596, "checkpoint_exit": 0, "dirty_kb_after": 924, "pause_s": 0.56}
+- c3-B2: {"stopped_epoch": 1795080845.5591645, "step2_started_before_pause": false, "dirty_kb_before": 40148, "checkpoint_exit": 0, "dirty_kb_after": 616, "pause_s": 0.605}
+- c3-O2: {"stopped_epoch": 1795080888.0693576, "step2_started_before_pause": false, "dirty_kb_before": 299804, "checkpoint_exit": 0, "dirty_kb_after": 1128, "pause_s": 0.6}
+- c3-B3: {"stopped_epoch": 1795080995.0853026, "step2_started_before_pause": false, "dirty_kb_before": 41568, "checkpoint_exit": 0, "dirty_kb_after": 236, "pause_s": 0.387}
+- c3-O3: {"stopped_epoch": 1795081038.5907445, "step2_started_before_pause": false, "dirty_kb_before": 299756, "checkpoint_exit": 0, "dirty_kb_after": 1160, "pause_s": 0.573}
+
+Planner before step 8 (pg_stats n_distinct of followings, last autoanalyze, plan's top join):
+- c3-B1: [['mid1', '6807', '0', '0.033437863'], ['mid2', '37706', '0', '-0.007754557']]; table [['5994153', '3867763', '', '2026-11-19 09:30:41.830012+00', '1']]; ['->  Hash Join  (cost=75021.58..78864.38 rows=6666 width=20)']
+- c3-O1: [['followee_mid', '37102', '0', '-0.006605598'], ['follower_mid', '14776', '0', '0.25316522']]; table [['5958764', '0', '2026-11-19 09:32:20.410886+00', '', '0']]; ['->  Hash Anti Join  (cost=4210.60..5486.57 rows=14623 width=18)']
+- c3-B2: [['mid1', '11964', '0', '0.022461673'], ['mid2', '37666', '0', '-0.005581296']]; table [['5936490', '1523315', '', '2026-11-19 09:33:44.390223+00', '1']]; ['->  Hash Anti Join  (cost=75055.51..76269.36 rows=11815 width=20)']
+- c3-O2: [['followee_mid', '37503', '0', '0.008886522'], ['follower_mid', '14815', '0', '0.25699762']]; table [['5958764', '0', '2026-11-19 09:34:48.038852+00', '', '0']]; ['->  Hash Anti Join  (cost=4185.20..5461.21 rows=14664 width=18)']
+- c3-B3: [['mid1', '6799', '0', '0.03175942'], ['mid2', '37287', '0', '-0.00066068233']]; table [['5984128', '3854963', '', '2026-11-19 09:35:40.583821+00', '1']]; ['->  Hash Join  (cost=75018.10..78851.03 rows=6656 width=20)']
+- c3-O3: [['followee_mid', '37872', '0', '-0.00041756794'], ['follower_mid', '14994', '0', '0.24869609']]; table [['5958850', '0', '2026-11-19 09:37:18.517072+00', '', '0']]; ['->  Hash Anti Join  (cost=4113.41..5390.88 rows=14844 width=18)']
+

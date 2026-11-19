@@ -1,0 +1,46 @@
+## docs/benchmark/round2/analyze
+
+boots (before and after each run): 2026-11-19 03:20:26
+B: commit, jar sha256 prefix, uncommitted tracked paths: [('3796695', '13515c673cd6d488', 0)]
+O: commit, jar sha256 prefix, uncommitted tracked paths: []
+order: c4-B1, c4-B2, c4-B3
+
+| run | read steps ms | write steps ms | all 21 timed steps ms | cases passed |
+|---|---:|---:|---:|---:|
+| c4-B1 | 17,362 | 3,062 | 20,424 | 5618 |
+| c4-B2 | 17,470 | 3,003 | 20,473 | 5618 |
+| c4-B3 | 18,274 | 2,981 | 21,255 | 5618 |
+
+WAL per write step, kB (pg_waldump: all records; FPI: the full-page images among them)
+
+| step | B: WAL | B: FPI | O: WAL | O: FPI |
+|---|---:|---:|---:|---:|
+| 10 danmu send | 107 [106-122] | 0 [0-14] | - | - |
+| 13 coin | 7,450 [7,439-7,529] | 7,149 [7,139-7,227] | - | - |
+| 14 like | 6,228 [6,187-6,250] | 6,060 [6,019-6,081] | - | - |
+| 15 collect | 5,920 [5,882-6,025] | 5,759 [5,722-5,844] | - | - |
+| 16 post video | 23 [13-23] | 10 [0-10] | - | - |
+| 17 register | 163 [163-171] | 94 [94-102] | - | - |
+| 18 update video | 10 [3-11] | 8 [0-8] | - | - |
+| 19 review | 5 [5-6] | 0 | - | - |
+| 21 delete video | 64,884 [64,883-64,885] | 32,553 | - | - |
+| 22 delete account | 27,169 [26,149-29,033] | 26,669 [25,648-28,529] | - | - |
+| 23 follow | 298 [254-314] | 288 [245-303] | - | - |
+| all write steps | 112,267 [111,370-114,073] | 78,580 [77,697-80,402] | - | - |
+
+Checkpoints in the server log, seconds relative to the start of step 10 (write steps end at the second given in brackets); Dirty from /proc/meminfo at the start of step 10
+
+- c4-B1: write steps 0 to 3.8 s; start -284 (wal); end -280; start -280 (immediate force wait); end -280; start -254 (wal); end -245; start -244 (wal); end -229; start -227 (wal); end -204; start -202 (wal); end -179; start -177 (wal); end -173; start -173 (immediate force wait); end -173; start -133 (wal); end -129; start -129 (immediate force wait); end -129; start -102 (wal); end -94; start -93 (wal); end -76; start -74 (wal); end -50; start -48 (wal); end -24; start -22 (wal); Dirty 43,912 kB; pg_stat_wal wal_fpi delta over the write steps 7141.0
+- c4-B2: write steps 0 to 3.7 s; start -261 (wal); end -257; start -257 (immediate force wait); end -257; start -230 (wal); end -221; start -220 (wal); end -204; start -202 (wal); end -178; start -176 (wal); end -152; start -150 (wal); end -104; start -103 (wal); end -95; start -94 (wal); end -83; start -80 (wal); end -57; start -55 (wal); end -31; start -28 (wal); Dirty 75,652 kB; pg_stat_wal wal_fpi delta over the write steps 3549.0
+- c4-B3: write steps 0 to 3.8 s; end -279; start -276 (wal); end -231; start -230 (wal); end -221; start -220 (wal); end -209; start -207 (wal); end -184; start -181 (wal); end -157; start -155 (wal); end -105; start -105 (wal); end -96; start -95 (wal); end -85; start -84 (wal); end -60; start -57 (wal); end -35; start -32 (wal); Dirty 272 kB; pg_stat_wal wal_fpi delta over the write steps 3069.0
+
+Pause after step 1:
+- c4-B1: {"stopped_epoch": 1795081150.5047746, "step2_started_before_pause": false, "dirty_kb_before": 43412, "vacuum_analyze_exit": 0, "followings_last_analyze": "2026-11-19 09:39:11.10244+00", "dirty_kb_after": 43636, "pause_s": 1.067}
+- c4-B2: {"stopped_epoch": 1795081278.3887224, "step2_started_before_pause": true, "dirty_kb_before": 76060, "vacuum_analyze_exit": 0, "followings_last_analyze": "2026-11-19 09:41:18.998702+00", "dirty_kb_after": 75936, "pause_s": 0.939}
+- c4-B3: {"stopped_epoch": 1795081403.8786561, "step2_started_before_pause": false, "dirty_kb_before": 111904, "vacuum_analyze_exit": 0, "followings_last_analyze": "2026-11-19 09:43:24.517149+00", "dirty_kb_after": 111968, "pause_s": 1.102}
+
+Planner before step 8 (pg_stats n_distinct of followings, last autoanalyze, plan's top join):
+- c4-B1: [['mid1', '14673', '0', '0.24497621'], ['mid2', '37960', '0', '-0.005263167']]; table [['5992145', '33395', '2026-11-19 09:39:11.10244+00', '2026-11-19 09:38:42.668031+00', '1']]; ['->  Hash Anti Join  (cost=74496.29..75751.24 rows=14524 width=20)']
+- c4-B2: [['mid1', '14590', '0', '0.24756831'], ['mid2', '37747', '0', '0.0054050256']]; table [['6026975', '68211', '2026-11-19 09:41:18.998702+00', '2026-11-19 09:40:42.191446+00', '1']]; ['->  Hash Anti Join  (cost=74476.75..75731.07 rows=14440 width=20)']
+- c4-B3: [['mid1', '14673', '0', '0.25565475'], ['mid2', '37675', '0', '-0.003600418']]; table [['5987551', '28787', '2026-11-19 09:43:24.517149+00', '2026-11-19 09:42:41.643109+00', '1']]; ['->  Hash Anti Join  (cost=74496.64..75788.00 rows=14523 width=20)']
+
