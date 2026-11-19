@@ -1,4 +1,4 @@
-# The tests that the round-2 fixes made pass, run on the code before the fixes (old) and on this version (new), 2026-11-19 12:36-12:37 UTC
+# The tests that the round-2 fixes made pass, run on the code before the fixes (old) and on this version (new)
 #
 # old: git archive 978fe40 (main code, sql/ and build files as in 978fe40), with this version's ConcurrencyTest, CollationIndependenceTest,
 #      Concurrency, Fixtures, IntegrationTest and VideoServiceTest copied in; its TransactionCompositionTest without

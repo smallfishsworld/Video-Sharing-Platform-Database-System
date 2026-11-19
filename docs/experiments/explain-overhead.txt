@@ -1,4 +1,4 @@
-# Output of docs/experiments/explain-overhead.sql, run 2026-11-19 03:43 UTC (load average 0.03)
+# Output of docs/experiments/explain-overhead.sql (load average 0.03)
 SET
 timing-on
  Execution Time: 199.675 ms
@@ -15,7 +15,7 @@ Time: 123.834 ms
 Time: 122.349 ms
 
 # timer cost: /usr/lib/postgresql/16/bin/pg_test_timing -d 1 (first 6 lines), run under the
-# benchmark lock at 03:43 UTC, just before the queries above; clocksource tsc
+# benchmark lock just before the queries above; clocksource tsc
 Testing timing overhead for 1 second.
 Per loop time including overhead: 27.33 ns
 Histogram of timing durations:

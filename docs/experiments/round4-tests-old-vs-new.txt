@@ -4,18 +4,18 @@
 #      DerivedDataConsistencyTest.java (sustc-api/src/test/java/io/sustc/service/impl/) replaced by the
 #      versions committed in 6c3f7d3 (the copy of DerivedDataConsistencyTest differed from 6c3f7d3 only by
 #      Spotless line wrapping).
-# New: the working tree later committed as b5bbd84 and 6c3f7d3 (the fixes and the tests), run a minute
+# New: the working tree later committed as b5bbd84 and 6c3f7d3 (the fixes and the tests), run just
 #      before those commits.
-# Old run: one hold of /home/user/work/bench.lock, 17:57:08-17:58:32 UTC, first job of the hold:
+# Old run: one hold of /home/user/work/bench.lock, first job of the hold:
 #   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache \
 #       :sustc-api:test --tests 'io.sustc.service.impl.ConcurrencyTest' \
 #       --tests 'io.sustc.service.impl.DerivedDataConsistencyTest'
 #   -> 23 tests completed, 5 failed; BUILD FAILED in 33s
-# New run: one hold, 18:00:00-18:01:01 UTC: spotlessApply, then the whole build (Spotless check and
+# New run: a later hold: spotlessApply, then the whole build (Spotless check and
 #   every test task), same flags:
 #   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache build
 #   -> 149 tests in 15 classes, 0 failed; BUILD SUCCESSFUL in 42s
-# The build before that one (same hold as the old run, 17:58:22) failed 1 of 149 tests:
+# The build before that one (later in the same hold as the old run) failed 1 of 149 tests:
 #   viewChangesAreRefusedUnderRepeatableRead got "Connection is closed" from the JDBC rollback. The
 #   trigger raised SQLSTATE 0A000 (feature_not_supported), which HikariCP takes for a broken connection,
 #   so the pool closed it. The trigger now raises 25000 (invalid_transaction_state) and the key-update
@@ -79,7 +79,7 @@
 
 == UserControlScriptTest on the round-3 sql/usercontrol.sql
 # A git worktree at 2391ff3 with only sql/usercontrol.sql replaced by the version of 10807b2, one hold of
-# /home/user/work/bench.lock, 18:52:25-18:52:43 UTC:
+# /home/user/work/bench.lock:
 #   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache \
 #       :sustc-api:test --tests 'io.sustc.service.impl.UserControlScriptTest'
 #   -> BUILD FAILED in 17s
@@ -87,4 +87,4 @@
   FAIL eachRoleHasTheDocumentedRights()   org.opentest4j.AssertionFailedError: [normaluser SELECT on users]
   (the first check that differs: the round-3 script grants normaluser SELECT on the whole users table,
    password, qq and wechat included; the test stops at its first failed assertion)
-On the current script the test passes (whole build, 18:26 UTC, and both fresh-clone builds of 01d31bb).
+On the current script the test passes (an earlier whole build, and both fresh-clone builds of 01d31bb).

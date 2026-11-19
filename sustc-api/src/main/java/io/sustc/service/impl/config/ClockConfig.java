@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>By default this is the system clock. Setting the {@value #START_PROPERTY} property (for
  * example {@code -Dsustc.clock.start=2023-12-30T12:00:00+08:00}) starts a clock at that instant
- * which then ticks at the normal rate. The bundled benchmark data was generated in December 2023
+ * which then ticks at the normal rate. The bundled benchmark data was generated in 2023
  * and several cases compare a video's public time with "now", so the benchmark pins the clock
  * this way.
  */

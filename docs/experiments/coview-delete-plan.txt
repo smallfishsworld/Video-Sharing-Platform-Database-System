@@ -1,4 +1,4 @@
-# psql -X -q -d r3scratch -f docs/experiments/coview-delete-plan.sql   (a scratch database; 2026-11-19T14:35:29Z, PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1))
+# psql -X -q -d r3scratch -f docs/experiments/coview-delete-plan.sql   (a scratch database; PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1))
 # (the "psql:FILE:LINE: NOTICE:" prefix of each line is removed)
 == a video without co-view rows
 -- 1 deleted video(s); 1717da9: bv in (...) or other_bv in (...)
