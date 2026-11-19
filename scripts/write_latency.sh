@@ -13,8 +13,8 @@
 # One client, prepared statements, 1000 transactions per measurement. The public schema is
 # DROPPED and reloaded (see scripts/benchmark.sh for the connection variables and the loopback
 # guard); it needs the runner jar (./gradlew :sustc-runner:bootJar) and, for part 3, the schema
-# original described in scripts/explain_plans.sh (its likes are toggled, nothing else changes). If BENCH_LOCK names a file, the whole run holds
-# an exclusive flock on it.
+# original described in scripts/explain_plans.sh (its likes are toggled, nothing else changes).
+# If BENCH_LOCK names a file, the whole run holds an exclusive flock on it.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
