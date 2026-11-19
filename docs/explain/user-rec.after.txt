@@ -1,0 +1,74 @@
+SET
+      bv      
+--------------
+ BV1v54y1u7m1
+ BV1pM4y1e7Ke
+ BV19t4y1E7hh
+ BV1p5411879s
+ BV1mG4y1z761
+ BV1p44y1i7cb
+ BV187411H782
+ BV1VG4y1K7Nu
+(8 rows)
+
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=204.57..204.59 rows=8 width=31) (actual time=0.914..0.916 rows=8 loops=1)
+   Buffers: shared hit=749
+   ->  Sort  (cost=204.57..204.62 rows=21 width=31) (actual time=0.913..0.915 rows=8 loops=1)
+         Sort Key: (count(*)) DESC, owner.level DESC, v.public_time DESC NULLS LAST, w.bv
+         Sort Method: top-N heapsort  Memory: 26kB
+         Buffers: shared hit=749
+         ->  GroupAggregate  (cost=43.73..204.15 rows=21 width=31) (actual time=0.641..0.905 rows=21 loops=1)
+               Group Key: w.bv, owner.level, v.public_time
+               Buffers: shared hit=749
+               ->  Incremental Sort  (cost=43.73..203.73 rows=21 width=23) (actual time=0.637..0.885 rows=135 loops=1)
+                     Sort Key: w.bv, owner.level DESC, v.public_time DESC NULLS LAST
+                     Presorted Key: w.bv
+                     Full-sort Groups: 4  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+                     Buffers: shared hit=749
+                     ->  Nested Loop  (cost=35.76..202.78 rows=21 width=23) (actual time=0.544..0.844 rows=135 loops=1)
+                           Buffers: shared hit=749
+                           ->  Nested Loop  (cost=35.47..43.60 rows=21 width=29) (actual time=0.539..0.696 rows=135 loops=1)
+                                 Buffers: shared hit=344
+                                 ->  Merge Anti Join  (cost=35.33..40.29 rows=21 width=13) (actual time=0.534..0.584 rows=135 loops=1)
+                                       Merge Cond: ((w.bv)::text = (mine.bv)::text)
+                                       Buffers: shared hit=74
+                                       ->  Sort  (cost=34.91..35.02 rows=47 width=13) (actual time=0.525..0.541 rows=338 loops=1)
+                                             Sort Key: w.bv
+                                             Sort Method: quicksort  Memory: 32kB
+                                             Buffers: shared hit=69
+                                             ->  Nested Loop  (cost=1.29..33.60 rows=47 width=13) (actual time=0.042..0.451 rows=338 loops=1)
+                                                   Join Filter: (w.mid = back.follower_mid)
+                                                   Buffers: shared hit=69
+                                                   ->  Merge Join  (cost=0.86..23.70 rows=2 width=16) (actual time=0.032..0.309 rows=14 loops=1)
+                                                         Merge Cond: (f.followee_mid = back.follower_mid)
+                                                         Buffers: shared hit=16
+                                                         ->  Index Only Scan using followings_pkey on followings f  (cost=0.43..15.15 rows=384 width=16) (actual time=0.013..0.178 rows=1776 loops=1)
+                                                               Index Cond: (follower_mid = 422017)
+                                                               Heap Fetches: 0
+                                                               Buffers: shared hit=11
+                                                         ->  Index Only Scan using followings_followee_idx on followings back  (cost=0.43..7.18 rows=157 width=16) (actual time=0.010..0.031 rows=191 loops=1)
+                                                               Index Cond: (followee_mid = 422017)
+                                                               Heap Fetches: 0
+                                                               Buffers: shared hit=5
+                                                   ->  Index Only Scan using viewers_mid_idx on viewers w  (cost=0.42..4.66 rows=23 width=21) (actual time=0.005..0.008 rows=24 loops=14)
+                                                         Index Cond: (mid = f.followee_mid)
+                                                         Heap Fetches: 9
+                                                         Buffers: shared hit=53
+                                       ->  Index Only Scan using viewers_mid_idx on viewers mine  (cost=0.42..4.83 rows=23 width=13) (actual time=0.005..0.009 rows=23 loops=1)
+                                             Index Cond: (mid = 422017)
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=5
+                                 ->  Index Scan using videos_pkey on videos v  (cost=0.14..0.16 rows=1 width=29) (actual time=0.000..0.000 rows=1 loops=135)
+                                       Index Cond: ((bv)::text = (w.bv)::text)
+                                       Buffers: shared hit=270
+                           ->  Index Scan using users_pkey on users owner  (cost=0.29..7.58 rows=1 width=10) (actual time=0.001..0.001 rows=1 loops=135)
+                                 Index Cond: (mid = v.owner_mid)
+                                 Buffers: shared hit=405
+ Planning:
+   Buffers: shared hit=64
+ Planning Time: 2.231 ms
+ Execution Time: 0.963 ms
+(57 rows)
+

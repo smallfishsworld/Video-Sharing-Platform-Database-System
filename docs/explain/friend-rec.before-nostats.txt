@@ -1,0 +1,149 @@
+SET
+  mid1  | cnt | level 
+--------+-----+-------
+ 448459 |   5 |     6
+ 538976 |   5 |     6
+ 551821 |   5 |     6
+ 575750 |   5 |     6
+ 604780 |   5 |     6
+ 613293 |   5 |     6
+(6 rows)
+
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1945895.44..1945895.46 rows=6 width=20) (actual time=606.427..607.231 rows=6 loops=1)
+   Buffers: shared hit=61360
+   ->  Sort  (cost=1945895.38..1945895.63 rows=100 width=20) (actual time=481.937..482.740 rows=30 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, b.mid1
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=61360
+         ->  Nested Loop  (cost=1944575.24..1945892.43 rows=100 width=20) (actual time=466.868..482.151 rows=4851 loops=1)
+               Buffers: shared hit=61360
+               ->  Nested Loop Anti Join  (cost=1944574.95..1945266.18 rows=100 width=16) (actual time=466.843..474.833 rows=4851 loops=1)
+                     Buffers: shared hit=46807
+                     ->  Finalize GroupAggregate  (cost=1944574.52..1944625.19 rows=200 width=16) (actual time=466.808..469.708 rows=4857 loops=1)
+                           Group Key: b.mid1
+                           Buffers: shared hit=32230
+                           ->  Gather Merge  (cost=1944574.52..1944621.19 rows=400 width=16) (actual time=466.787..468.779 rows=5039 loops=1)
+                                 Workers Planned: 2
+                                 Workers Launched: 2
+                                 Buffers: shared hit=32230
+                                 ->  Sort  (cost=1943574.50..1943575.00 rows=200 width=16) (actual time=449.458..449.636 rows=1680 loops=3)
+                                       Sort Key: b.mid1
+                                       Sort Method: quicksort  Memory: 188kB
+                                       Buffers: shared hit=32230
+                                       Worker 0:  Sort Method: quicksort  Memory: 116kB
+                                       Worker 1:  Sort Method: quicksort  Memory: 63kB
+                                       ->  Partial HashAggregate  (cost=1943564.85..1943566.85 rows=200 width=16) (actual time=448.940..449.143 rows=1680 loops=3)
+                                             Group Key: b.mid1
+                                             Batches: 1  Memory Usage: 385kB
+                                             Buffers: shared hit=32214
+                                             Worker 0:  Batches: 1  Memory Usage: 209kB
+                                             Worker 1:  Batches: 1  Memory Usage: 145kB
+                                             ->  Parallel Hash Join  (cost=33589.62..103457.62 rows=368021447 width=8) (actual time=89.993..447.225 rows=2238 loops=3)
+                                                   Hash Cond: (b.mid2 = a.mid2)
+                                                   Buffers: shared hit=32214
+                                                   ->  Parallel Seq Scan on followings b  (cost=0.00..63245.68 rows=2470440 width=16) (actual time=89.783..264.330 rows=1986242 loops=3)
+                                                         Filter: (mid1 <> 1727180)
+                                                         Rows Removed by Filter: 14
+                                                         Buffers: shared hit=32210
+                                                   ->  Parallel Hash  (cost=33434.44..33434.44 rows=12414 width=8) (actual time=0.033..0.035 rows=14 loops=3)
+                                                         Buckets: 32768  Batches: 1  Memory Usage: 288kB
+                                                         Buffers: shared hit=4
+                                                         ->  Parallel Bitmap Heap Scan on followings a  (cost=395.34..33434.44 rows=12414 width=8) (actual time=0.046..0.050 rows=43 loops=1)
+                                                               Recheck Cond: (mid1 = 1727180)
+                                                               Heap Blocks: exact=1
+                                                               Buffers: shared hit=4
+                                                               ->  Bitmap Index Scan on followings_i1  (cost=0.00..387.89 rows=29794 width=0) (actual time=0.022..0.022 rows=43 loops=1)
+                                                                     Index Cond: (mid1 = 1727180)
+                                                                     Buffers: shared hit=3
+                     ->  Index Only Scan using followings_pkey on followings h  (cost=0.43..413.43 rows=149 width=8) (actual time=0.001..0.001 rows=0 loops=4857)
+                           Index Cond: ((mid1 = 1727180) AND (mid2 = b.mid1))
+                           Heap Fetches: 6
+                           Buffers: shared hit=14577
+               ->  Index Scan using users_pkey on users u  (cost=0.29..6.26 rows=1 width=12) (actual time=0.001..0.001 rows=1 loops=4851)
+                     Index Cond: (mid = b.mid1)
+                     Buffers: shared hit=14553
+ Planning Time: 0.335 ms
+ JIT:
+   Functions: 67
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 2.088 ms, Inlining 122.519 ms, Optimization 139.301 ms, Emission 132.109 ms, Total 396.017 ms
+ Execution Time: 608.395 ms
+(59 rows)
+
+  mid1   | cnt | level 
+---------+-----+-------
+  494881 | 145 |     6
+ 1504125 | 144 |     6
+  144283 | 143 |     6
+ 1617604 | 143 |     6
+  356561 | 142 |     6
+  793095 | 142 |     6
+  891534 | 140 |     6
+ 1751487 | 140 |     6
+(8 rows)
+
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1945895.26..1945895.28 rows=8 width=20) (actual time=661.309..661.504 rows=8 loops=1)
+   Buffers: shared hit=168439
+   ->  Sort  (cost=1945895.22..1945895.47 rows=100 width=20) (actual time=536.674..536.868 rows=24 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, b.mid1
+         Sort Method: top-N heapsort  Memory: 27kB
+         Buffers: shared hit=168439
+         ->  Nested Loop  (cost=1944575.24..1945892.43 rows=100 width=20) (actual time=479.108..534.760 rows=21981 loops=1)
+               Buffers: shared hit=168439
+               ->  Nested Loop Anti Join  (cost=1944574.95..1945266.18 rows=100 width=16) (actual time=479.088..511.324 rows=21981 loops=1)
+                     Buffers: shared hit=102496
+                     ->  Finalize GroupAggregate  (cost=1944574.52..1944625.19 rows=200 width=16) (actual time=479.048..488.705 rows=23059 loops=1)
+                           Group Key: b.mid1
+                           Buffers: shared hit=32241
+                           ->  Gather Merge  (cost=1944574.52..1944621.19 rows=400 width=16) (actual time=479.020..484.931 rows=24428 loops=1)
+                                 Workers Planned: 2
+                                 Workers Launched: 2
+                                 Buffers: shared hit=32241
+                                 ->  Sort  (cost=1943574.50..1943575.00 rows=200 width=16) (actual time=448.767..450.054 rows=8143 loops=3)
+                                       Sort Key: b.mid1
+                                       Sort Method: quicksort  Memory: 913kB
+                                       Buffers: shared hit=32241
+                                       Worker 0:  Sort Method: quicksort  Memory: 443kB
+                                       Worker 1:  Sort Method: quicksort  Memory: 367kB
+                                       ->  Partial HashAggregate  (cost=1943564.85..1943566.85 rows=200 width=16) (actual time=445.896..447.169 rows=8143 loops=3)
+                                             Group Key: b.mid1
+                                             Batches: 1  Memory Usage: 1441kB
+                                             Buffers: shared hit=32225
+                                             Worker 0:  Batches: 1  Memory Usage: 737kB
+                                             Worker 1:  Batches: 1  Memory Usage: 737kB
+                                             ->  Parallel Hash Join  (cost=33589.62..103457.62 rows=368021447 width=8) (actual time=122.708..433.102 rows=92572 loops=3)
+                                                   Hash Cond: (b.mid2 = a.mid2)
+                                                   Buffers: shared hit=32225
+                                                   ->  Parallel Seq Scan on followings b  (cost=0.00..63245.68 rows=2470440 width=16) (actual time=122.410..274.637 rows=1985669 loops=3)
+                                                         Filter: (mid1 <> 882400)
+                                                         Rows Removed by Filter: 587
+                                                         Buffers: shared hit=32210
+                                                   ->  Parallel Hash  (cost=33434.44..33434.44 rows=12414 width=8) (actual time=0.171..0.173 rows=587 loops=3)
+                                                         Buckets: 32768  Batches: 1  Memory Usage: 352kB
+                                                         Buffers: shared hit=15
+                                                         ->  Parallel Bitmap Heap Scan on followings a  (cost=395.34..33434.44 rows=12414 width=8) (actual time=0.103..0.248 rows=1762 loops=1)
+                                                               Recheck Cond: (mid1 = 882400)
+                                                               Heap Blocks: exact=11
+                                                               Buffers: shared hit=15
+                                                               ->  Bitmap Index Scan on followings_i1  (cost=0.00..387.89 rows=29794 width=0) (actual time=0.050..0.050 rows=1762 loops=1)
+                                                                     Index Cond: (mid1 = 882400)
+                                                                     Buffers: shared hit=4
+                     ->  Index Only Scan using followings_pkey on followings h  (cost=0.43..413.43 rows=149 width=8) (actual time=0.001..0.001 rows=0 loops=23059)
+                           Index Cond: ((mid1 = 882400) AND (mid2 = b.mid1))
+                           Heap Fetches: 1078
+                           Buffers: shared hit=70255
+               ->  Index Scan using users_pkey on users u  (cost=0.29..6.26 rows=1 width=12) (actual time=0.001..0.001 rows=1 loops=21981)
+                     Index Cond: (mid = b.mid1)
+                     Buffers: shared hit=65943
+ Planning Time: 0.306 ms
+ JIT:
+   Functions: 67
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 6.323 ms, Inlining 196.584 ms, Optimization 178.537 ms, Emission 116.871 ms, Total 498.316 ms
+ Execution Time: 662.909 ms
+(59 rows)
+

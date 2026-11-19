@@ -1,0 +1,115 @@
+SET
+BEGIN
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result  (cost=12.55..12.56 rows=1 width=1) (actual time=0.290..0.292 rows=1 loops=1)
+   Buffers: shared hit=11 read=10 dirtied=3
+   CTE target
+     ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.008..0.012 rows=1 loops=1)
+           Filter: ((owner_mid <> 200267) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 200267) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+           Rows Removed by Filter: 43
+           Buffers: shared hit=2
+   CTE removed
+     ->  Delete on videolikes t  (cost=0.42..9.61 rows=1 width=62) (actual time=0.216..0.217 rows=0 loops=1)
+           Buffers: shared hit=3 read=4 dirtied=2
+           ->  Nested Loop  (cost=0.42..9.61 rows=1 width=62) (actual time=0.214..0.214 rows=0 loops=1)
+                 Buffers: shared hit=3 read=4 dirtied=2
+                 ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=88) (actual time=0.157..0.161 rows=1 loops=1)
+                       Buffers: shared hit=2
+                 ->  Index Scan using videolikes_pkey on videolikes t  (cost=0.42..8.44 rows=1 width=19) (actual time=0.051..0.051 rows=0 loops=1)
+                       Index Cond: (((bv)::text = (target.bv)::text) AND (mid = 200267))
+                       Buffers: shared hit=1 read=4 dirtied=2
+   CTE added
+     ->  Insert on videolikes  (cost=0.02..0.04 rows=1 width=40) (actual time=0.288..0.289 rows=1 loops=1)
+           Conflict Resolution: NOTHING
+           Tuples Inserted: 1
+           Conflicting Tuples: 0
+           Buffers: shared hit=11 read=10 dirtied=3
+           InitPlan 3 (returns $4)
+             ->  CTE Scan on removed  (cost=0.00..0.02 rows=1 width=0) (actual time=0.216..0.217 rows=0 loops=1)
+                   Buffers: shared hit=3 read=4 dirtied=2
+           ->  Result  (cost=0.00..0.02 rows=1 width=40) (actual time=0.218..0.219 rows=1 loops=1)
+                 One-Time Filter: (NOT $4)
+                 Buffers: shared hit=3 read=4 dirtied=2
+                 ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=32) (actual time=0.000..0.000 rows=1 loops=1)
+   InitPlan 5 (returns $7)
+     ->  CTE Scan on added  (cost=0.00..0.02 rows=1 width=0) (actual time=0.289..0.289 rows=1 loops=1)
+           Buffers: shared hit=11 read=10 dirtied=3
+ Planning:
+   Buffers: shared hit=41 read=3
+ Planning Time: 0.297 ms
+ Trigger for constraint videolikes_bv_fkey on videolikes: time=0.124 calls=1
+ Trigger for constraint videolikes_mid_fkey on videolikes: time=0.064 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.564 calls=1
+ Trigger derived_videolikes_insert on videolikes: time=0.234 calls=1
+ Execution Time: 1.348 ms
+(41 rows)
+
+ROLLBACK
+BEGIN
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.041..0.042 rows=0 loops=1)
+   Buffers: shared hit=2 read=4
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.039..0.039 rows=0 loops=1)
+           Buffers: shared hit=2 read=4
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.009..0.012 rows=1 loops=1)
+                 Filter: ((owner_mid <> 200267) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 200267) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.026..0.026 rows=1 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 200267))
+                 Heap Fetches: 0
+                 Buffers: shared read=4
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.002..0.002 rows=0 loops=1)
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=0 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.001..0.001 rows=0 loops=1)
+                 One-Time Filter: $1
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (never executed)
+                       Index Cond: (mid = 200267)
+                       Filter: (coin > 0)
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.039..0.040 rows=0 loops=1)
+         Buffers: shared hit=2 read=4
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.039..0.039 rows=0 loops=1)
+               Buffers: shared hit=2 read=4
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (never executed)
+ Planning:
+   Buffers: shared hit=45 read=3
+ Planning Time: 0.245 ms
+ Trigger users_audit_update on users: time=0.313 calls=1
+ Trigger derived_coins_insert on coins: time=0.271 calls=1
+ Execution Time: 0.704 ms
+(33 rows)
+
+ROLLBACK
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.050..0.050 rows=0 loops=1)
+   Buffers: shared hit=16
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.005..0.009 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1mG4y1z761'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning Time: 0.035 ms
+ Trigger for constraint coins_bv_fkey on videos: time=5.129 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.297 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=5.446 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.155 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.178 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.035 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=5.719 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=14.821 calls=1
+ Trigger derived_coins_delete on coins: time=1.004 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=1.453 calls=23
+ Trigger derived_danmus_delete on danmus: time=0.390 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.764 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=1.663 calls=1
+ Trigger derived_viewers_delete on viewers: time=3.412 calls=1
+ Execution Time: 40.955 ms
+(22 rows)
+
+ROLLBACK

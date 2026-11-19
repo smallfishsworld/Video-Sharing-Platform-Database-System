@@ -1,0 +1,57 @@
+SET
+      bv      |  cnt  
+--------------+-------
+ BV1Q7411J751 | 29355
+ BV1mG4y1z761 | 25514
+ BV1bt4y1x7Wk | 25165
+ BV1FJ411M7rM | 24529
+ BV19t4y1E7hh | 24509
+(5 rows)
+
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=16166.42..16166.44 rows=5 width=21) (actual time=160.662..164.467 rows=5 loops=1)
+   Buffers: shared hit=6705
+   ->  Sort  (cost=16166.42..16166.53 rows=44 width=21) (actual time=160.660..164.464 rows=5 loops=1)
+         Sort Key: (count(b.mid)) DESC
+         Sort Method: top-N heapsort  Memory: 25kB
+         Buffers: shared hit=6705
+         ->  Finalize GroupAggregate  (cost=16154.54..16165.69 rows=44 width=21) (actual time=160.614..164.450 rows=43 loops=1)
+               Group Key: a.bv
+               Buffers: shared hit=6705
+               ->  Gather Merge  (cost=16154.54..16164.81 rows=88 width=21) (actual time=160.600..164.423 rows=126 loops=1)
+                     Workers Planned: 2
+                     Workers Launched: 2
+                     Buffers: shared hit=6705
+                     ->  Sort  (cost=15154.52..15154.63 rows=44 width=21) (actual time=154.884..154.890 rows=42 loops=3)
+                           Sort Key: a.bv
+                           Sort Method: quicksort  Memory: 27kB
+                           Buffers: shared hit=6705
+                           Worker 0:  Sort Method: quicksort  Memory: 26kB
+                           Worker 1:  Sort Method: quicksort  Memory: 26kB
+                           ->  Partial HashAggregate  (cost=15152.88..15153.32 rows=44 width=21) (actual time=154.837..154.845 rows=42 loops=3)
+                                 Group Key: a.bv
+                                 Batches: 1  Memory Usage: 24kB
+                                 Buffers: shared hit=6689
+                                 Worker 0:  Batches: 1  Memory Usage: 24kB
+                                 Worker 1:  Batches: 1  Memory Usage: 24kB
+                                 ->  Parallel Hash Join  (cost=1542.64..13449.60 rows=340655 width=21) (actual time=7.345..123.586 rows=262969 loops=3)
+                                       Hash Cond: (a.mid = b.mid)
+                                       Buffers: shared hit=6689
+                                       ->  Parallel Seq Scan on viewers a  (cost=0.00..10989.54 rows=349456 width=21) (actual time=0.011..46.890 rows=279746 loops=3)
+                                             Filter: ((bv)::text <> 'BV1PK4y1b7dt'::text)
+                                             Rows Removed by Filter: 11872
+                                             Buffers: shared hit=6433
+                                       ->  Parallel Hash  (cost=1354.30..1354.30 rows=15067 width=8) (actual time=6.370..6.371 rows=11872 loops=3)
+                                             Buckets: 65536  Batches: 1  Memory Usage: 1952kB
+                                             Buffers: shared hit=232
+                                             ->  Parallel Index Only Scan using viewers_pkey on viewers b  (cost=0.42..1354.30 rows=15067 width=8) (actual time=0.083..4.180 rows=11872 loops=3)
+                                                   Index Cond: (bv = 'BV1PK4y1b7dt'::text)
+                                                   Heap Fetches: 0
+                                                   Buffers: shared hit=232
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.325 ms
+ Execution Time: 164.538 ms
+(43 rows)
+

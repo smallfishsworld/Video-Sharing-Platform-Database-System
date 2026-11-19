@@ -1,0 +1,119 @@
+SET
+  mid   
+--------
+ 448459
+ 538976
+ 551821
+ 575750
+ 604780
+ 613293
+(6 rows)
+
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5909.90..5909.91 rows=6 width=18) (actual time=10.911..10.918 rows=6 loops=1)
+   Buffers: shared hit=734
+   ->  Sort  (cost=5909.84..5946.35 rows=14606 width=18) (actual time=10.908..10.914 rows=30 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, o.follower_mid
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=734
+         ->  Hash Anti Join  (cost=4167.91..5478.46 rows=14606 width=18) (actual time=3.356..10.460 rows=4851 loops=1)
+               Hash Cond: (o.follower_mid = x.followee_mid)
+               Buffers: shared hit=734
+               ->  Hash Join  (cost=4147.96..5202.21 rows=14755 width=18) (actual time=3.326..9.941 rows=4857 loops=1)
+                     Hash Cond: (u.mid = o.follower_mid)
+                     Buffers: shared hit=730
+                     ->  Seq Scan on users u  (cost=0.00..954.81 rows=37881 width=10) (actual time=0.003..2.536 rows=37881 loops=1)
+                           Buffers: shared hit=576
+                     ->  Hash  (cost=3963.52..3963.52 rows=14755 width=16) (actual time=3.310..3.313 rows=4857 loops=1)
+                           Buckets: 16384  Batches: 1  Memory Usage: 356kB
+                           Buffers: shared hit=154
+                           ->  HashAggregate  (cost=3815.97..3963.52 rows=14755 width=16) (actual time=2.302..2.796 rows=4857 loops=1)
+                                 Group Key: o.follower_mid
+                                 Batches: 1  Memory Usage: 1297kB
+                                 Buffers: shared hit=154
+                                 ->  Nested Loop  (cost=0.86..3513.87 rows=60419 width=8) (actual time=0.023..1.359 rows=6715 loops=1)
+                                       Buffers: shared hit=154
+                                       ->  Index Only Scan using followings_pkey on followings mine  (cost=0.43..15.15 rows=384 width=8) (actual time=0.008..0.012 rows=43 loops=1)
+                                             Index Cond: (follower_mid = 1727180)
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=4
+                                       ->  Index Only Scan using followings_followee_idx on followings o  (cost=0.43..7.54 rows=157 width=16) (actual time=0.007..0.019 rows=156 loops=43)
+                                             Index Cond: (followee_mid = mine.followee_mid)
+                                             Filter: (follower_mid <> 1727180)
+                                             Rows Removed by Filter: 1
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=150
+               ->  Hash  (cost=15.15..15.15 rows=384 width=8) (actual time=0.025..0.026 rows=43 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=4
+                     ->  Index Only Scan using followings_pkey on followings x  (cost=0.43..15.15 rows=384 width=8) (actual time=0.018..0.021 rows=43 loops=1)
+                           Index Cond: (follower_mid = 1727180)
+                           Heap Fetches: 0
+                           Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.313 ms
+ Execution Time: 11.032 ms
+(44 rows)
+
+   mid   
+---------
+  494881
+ 1504125
+  144283
+ 1617604
+  356561
+  793095
+  891534
+ 1751487
+(8 rows)
+
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5886.37..5886.39 rows=8 width=18) (actual time=121.439..121.447 rows=8 loops=1)
+   Buffers: shared hit=6971
+   ->  Sort  (cost=5886.33..5922.84 rows=14606 width=18) (actual time=121.435..121.443 rows=24 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, o.follower_mid
+         Sort Method: top-N heapsort  Memory: 27kB
+         Buffers: shared hit=6971
+         ->  Hash Anti Join  (cost=4167.91..5478.46 rows=14606 width=18) (actual time=106.266..119.533 rows=21981 loops=1)
+               Hash Cond: (o.follower_mid = x.followee_mid)
+               Buffers: shared hit=6971
+               ->  Hash Join  (cost=4147.96..5202.21 rows=14755 width=18) (actual time=105.928..116.421 rows=23059 loops=1)
+                     Hash Cond: (u.mid = o.follower_mid)
+                     Buffers: shared hit=6961
+                     ->  Seq Scan on users u  (cost=0.00..954.81 rows=37881 width=10) (actual time=0.004..2.698 rows=37881 loops=1)
+                           Buffers: shared hit=576
+                     ->  Hash  (cost=3963.52..3963.52 rows=14755 width=16) (actual time=105.866..105.869 rows=23059 loops=1)
+                           Buckets: 32768 (originally 16384)  Batches: 1 (originally 1)  Memory Usage: 1337kB
+                           Buffers: shared hit=6385
+                           ->  HashAggregate  (cost=3815.97..3963.52 rows=14755 width=16) (actual time=99.925..102.756 rows=23059 loops=1)
+                                 Group Key: o.follower_mid
+                                 Batches: 1  Memory Usage: 2833kB
+                                 Buffers: shared hit=6385
+                                 ->  Nested Loop  (cost=0.86..3513.87 rows=60419 width=8) (actual time=0.029..56.403 rows=277715 loops=1)
+                                       Buffers: shared hit=6385
+                                       ->  Index Only Scan using followings_pkey on followings mine  (cost=0.43..15.15 rows=384 width=8) (actual time=0.015..0.204 rows=1762 loops=1)
+                                             Index Cond: (follower_mid = 882400)
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=10
+                                       ->  Index Only Scan using followings_followee_idx on followings o  (cost=0.43..7.54 rows=157 width=16) (actual time=0.006..0.019 rows=158 loops=1762)
+                                             Index Cond: (followee_mid = mine.followee_mid)
+                                             Filter: (follower_mid <> 882400)
+                                             Rows Removed by Filter: 1
+                                             Heap Fetches: 0
+                                             Buffers: shared hit=6375
+               ->  Hash  (cost=15.15..15.15 rows=384 width=8) (actual time=0.327..0.328 rows=1762 loops=1)
+                     Buckets: 2048 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 85kB
+                     Buffers: shared hit=10
+                     ->  Index Only Scan using followings_pkey on followings x  (cost=0.43..15.15 rows=384 width=8) (actual time=0.023..0.174 rows=1762 loops=1)
+                           Index Cond: (follower_mid = 882400)
+                           Heap Fetches: 0
+                           Buffers: shared hit=10
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.358 ms
+ Execution Time: 121.774 ms
+(44 rows)
+

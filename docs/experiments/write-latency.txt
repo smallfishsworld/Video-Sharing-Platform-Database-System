@@ -1,0 +1,27 @@
+# scripts/write_latency.sh, 2026-11-19T03:27:46Z, 4 CPUs, 1000 transactions per line, 1 client
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+checkpoint_timeout=300 fsync=on full_page_writes=on max_wal_size=1024 shared_buffers=131072 synchronous_commit=on wal_compression=off
+
+## 1. Fresh import into public, then the same statements again after 120s
+Imported {favorites=430622, videolikes=480154, viewers=874856, danmulikes=11068, coins=447153, danmus=322, followings=5958770, videos=44, video_stats=44, users=37881, video_coviews=1892} in 15913 ms
+after import:   Dirty: 142768 kB Writeback: 136 kB 
+likeVideo, current, right after import       latency average = 1.301 ms 
+displayDanmu, current, right after import    latency average = 0.126 ms 
+after 120s: Dirty: 316 kB Writeback: 0 kB 
+likeVideo, current, settled                  latency average = 0.783 ms 
+displayDanmu, current, settled               latency average = 0.141 ms 
+
+## 2. likeVideo without the derived-table triggers, then also without the foreign keys
+likeVideo, current, no triggers              latency average = 0.687 ms 
+likeVideo, current, no triggers, no FKs      latency average = 0.803 ms 
+likeVideo, current, with both again          latency average = 0.877 ms 
+
+## 3. Original vs current likeVideo statement sequence, alternating (settled data)
+# Both schemas pay full-page writes after each checkpoint start; alternating short rounds
+# exposes them to the same checkpoint phase.
+likeVideo, original, round 1                 latency average = 1.235 ms 
+likeVideo, current, round 1                  latency average = 0.882 ms 
+likeVideo, original, round 2                 latency average = 1.057 ms 
+likeVideo, current, round 2                  latency average = 0.904 ms 
+likeVideo, original, round 3                 latency average = 0.941 ms 
+likeVideo, current, round 3                  latency average = 0.806 ms 

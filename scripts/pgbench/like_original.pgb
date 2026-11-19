@@ -1,0 +1,15 @@
+-- likeVideo as the original implementation (commit 2e811bd) runs it, one autocommit statement at
+-- a time: authentication, identity, video lookup, "already liked?", then INSERT or DELETE.
+\set i random(1, 37000)
+\set j random(1, :videos)
+select mid as me, password as pw from bench_users where i = :i \gset
+select bv from bench_videos where i = :j \gset
+select mid from users where mid = :me and password = :pw;
+select identity from users where mid = :me;
+select * from videos where bv = :bv;
+select count(*) as liked from videolikes where bv = :bv and mid = :me \gset
+\if :liked
+delete from videolikes where bv = :bv and mid = :me;
+\else
+insert into videolikes values (:bv, :me);
+\endif

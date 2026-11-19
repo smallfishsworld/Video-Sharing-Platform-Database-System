@@ -1,0 +1,43 @@
+SET
+      bv      | cnt | views 
+--------------+-----+-------
+ BV1PK4y1b7dt |   4 | 35617
+ BV1rq4y1k7SH |   1 | 15540
+(2 rows)
+
+                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=11321.22..11321.25 rows=10 width=25) (actual time=13.875..13.878 rows=2 loops=1)
+   Buffers: shared hit=57
+   ->  Sort  (cost=11321.22..11321.26 rows=15 width=25) (actual time=13.874..13.875 rows=2 loops=1)
+         Sort Key: (((((((array_length(regexp_split_to_array(lower((videos.title)::text), '周杰伦'::text), 1) - 1) + (array_length(regexp_split_to_array(lower((videos.description)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.title)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.description)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), 'mv'::text), 1) - 1))) DESC, (count(*)) DESC
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=57
+         ->  Unique  (cost=11320.78..11320.93 rows=15 width=25) (actual time=13.866..13.869 rows=2 loops=1)
+               Buffers: shared hit=57
+               ->  Sort  (cost=11320.78..11320.82 rows=15 width=25) (actual time=13.865..13.866 rows=2 loops=1)
+                     Sort Key: videos.bv, (((((((array_length(regexp_split_to_array(lower((videos.title)::text), '周杰伦'::text), 1) - 1) + (array_length(regexp_split_to_array(lower((videos.description)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.title)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.description)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), 'mv'::text), 1) - 1))), (count(*))
+                     Sort Method: quicksort  Memory: 25kB
+                     Buffers: shared hit=57
+                     ->  HashAggregate  (cost=11320.34..11320.49 rows=15 width=25) (actual time=13.856..13.858 rows=2 loops=1)
+                           Group Key: videos.bv, (((((((array_length(regexp_split_to_array(lower((videos.title)::text), '周杰伦'::text), 1) - 1) + (array_length(regexp_split_to_array(lower((videos.description)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.title)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.description)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((videos.ownername)::text), 'mv'::text), 1) - 1)))
+                           Batches: 1  Memory Usage: 24kB
+                           Buffers: shared hit=57
+                           ->  Nested Loop Left Join  (cost=7.77..9083.49 rows=298246 width=17) (actual time=0.505..7.840 rows=51157 loops=1)
+                                 Buffers: shared hit=57
+                                 ->  Sort  (cost=7.34..7.38 rows=15 width=17) (actual time=0.484..0.487 rows=2 loops=1)
+                                       Sort Key: videos.bv
+                                       Sort Method: quicksort  Memory: 25kB
+                                       Buffers: shared hit=10
+                                       ->  Seq Scan on videos  (cost=0.00..7.05 rows=15 width=17) (actual time=0.264..0.479 rows=2 loops=1)
+                                             Filter: (((publictime < '2023-12-30 12:00:00'::timestamp without time zone) OR (ownermid = 200267)) AND (((((((array_length(regexp_split_to_array(lower((title)::text), '周杰伦'::text), 1) - 1) + (array_length(regexp_split_to_array(lower((description)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((ownername)::text), '周杰伦'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((title)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((description)::text), 'mv'::text), 1) - 1)) + (array_length(regexp_split_to_array(lower((ownername)::text), 'mv'::text), 1) - 1)) > 0))
+                                             Rows Removed by Filter: 42
+                                             Buffers: shared hit=10
+                                 ->  Index Only Scan using viewers_i1 on viewers r  (cost=0.42..406.24 rows=19883 width=13) (actual time=0.014..1.571 rows=25578 loops=2)
+                                       Index Cond: (bv = (videos.bv)::text)
+                                       Heap Fetches: 0
+                                       Buffers: shared hit=47
+ Planning Time: 0.315 ms
+ Execution Time: 13.944 ms
+(32 rows)
+

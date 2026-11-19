@@ -1,0 +1,140 @@
+SET
+      bv      |           score            
+--------------+----------------------------
+ BV1Rg411w7uU | 2.846407498950372827325064
+ BV1s7411j7yk | 2.818799473634849579809226
+ BV1vZ4y187Zs |     2.81682014716491332796
+ BV1aG4y1z746 |     2.73860078456296840594
+ BV1VG4y1K7Nu |     2.69158815133819186149
+ BV1F7411v7MH |     2.64749631346832342492
+ BV1sz411z7Qb |     2.63963742484289543193
+ BV1cX4y1L7nq |     2.55891652785942891195
+ BV1rq4y1k7SH |     2.54343629343629300900
+ BV1Kb411L79v |     2.46731638926203600159
+(10 rows)
+
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=59470.93..59470.95 rows=10 width=45) (actual time=725.067..725.091 rows=10 loops=1)
+   Buffers: shared hit=15098
+   ->  Sort  (cost=59470.93..59471.04 rows=44 width=45) (actual time=725.065..725.087 rows=10 loops=1)
+         Sort Key: (CASE a.views WHEN 0 THEN '0'::numeric ELSE ((((qmin(((b.lik)::numeric / (a.views)::numeric), 1.0) + qmin(((c.coi)::numeric / (a.views)::numeric), 1.0)) + qmin(((d.fav)::numeric / (a.views)::numeric), 1.0)) + qmin(((e.dan)::numeric / (a.views)::numeric), 1.0)) + qmin(((a.avgviewtime / a.duration))::numeric, 1.0)) END) DESC
+         Sort Method: top-N heapsort  Memory: 26kB
+         Buffers: shared hit=15098
+         ->  Hash Join  (cost=59410.34..59469.98 rows=44 width=45) (actual time=724.841..725.056 rows=44 loops=1)
+               Hash Cond: ((a.bv)::text = (e.bv)::text)
+               Buffers: shared hit=15098
+               ->  Merge Join  (cost=59396.17..59398.59 rows=44 width=96) (actual time=724.551..724.618 rows=44 loops=1)
+                     Merge Cond: ((a.bv)::text = (d.bv)::text)
+                     Buffers: shared hit=15092
+                     ->  Merge Join  (cost=48949.50..48951.15 rows=44 width=75) (actual time=587.605..587.657 rows=44 loops=1)
+                           Merge Cond: ((a.bv)::text = (c.bv)::text)
+                           Buffers: shared hit=12347
+                           ->  Merge Join  (cost=38101.30..38102.18 rows=44 width=54) (actual time=446.991..447.023 rows=44 loops=1)
+                                 Merge Cond: ((a.bv)::text = (b.bv)::text)
+                                 Buffers: shared hit=9496
+                                 ->  Sort  (cost=26453.11..26453.22 rows=44 width=33) (actual time=296.746..296.756 rows=44 loops=1)
+                                       Sort Key: a.bv
+                                       Sort Method: quicksort  Memory: 27kB
+                                       Buffers: shared hit=6435
+                                       ->  Subquery Scan on a  (cost=26450.81..26451.91 rows=44 width=33) (actual time=296.694..296.710 rows=44 loops=1)
+                                             Buffers: shared hit=6435
+                                             ->  HashAggregate  (cost=26450.81..26451.47 rows=44 width=33) (actual time=296.693..296.704 rows=44 loops=1)
+                                                   Group Key: v.bv
+                                                   Batches: 1  Memory Usage: 24kB
+                                                   Buffers: shared hit=6435
+                                                   ->  Hash Right Join  (cost=2.99..17702.25 rows=874856 width=29) (actual time=0.032..193.384 rows=874856 loops=1)
+                                                         Hash Cond: ((r.bv)::text = (v.bv)::text)
+                                                         Buffers: shared hit=6435
+                                                         ->  Seq Scan on viewers r  (cost=0.00..15181.56 rows=874856 width=25) (actual time=0.003..50.654 rows=874856 loops=1)
+                                                               Buffers: shared hit=6433
+                                                         ->  Hash  (cost=2.44..2.44 rows=44 width=17) (actual time=0.015..0.016 rows=44 loops=1)
+                                                               Buckets: 1024  Batches: 1  Memory Usage: 11kB
+                                                               Buffers: shared hit=2
+                                                               ->  Seq Scan on videos v  (cost=0.00..2.44 rows=44 width=17) (actual time=0.001..0.006 rows=44 loops=1)
+                                                                     Buffers: shared hit=2
+                                 ->  Sort  (cost=11648.19..11648.30 rows=44 width=21) (actual time=150.238..150.245 rows=44 loops=1)
+                                       Sort Key: b.bv
+                                       Sort Method: quicksort  Memory: 27kB
+                                       Buffers: shared hit=3061
+                                       ->  Subquery Scan on b  (cost=11646.11..11646.99 rows=44 width=21) (actual time=150.180..150.192 rows=44 loops=1)
+                                             Buffers: shared hit=3061
+                                             ->  HashAggregate  (cost=11646.11..11646.55 rows=44 width=21) (actual time=150.179..150.186 rows=44 loops=1)
+                                                   Group Key: v_1.bv
+                                                   Batches: 1  Memory Usage: 24kB
+                                                   Buffers: shared hit=3061
+                                                   ->  Hash Right Join  (cost=2.99..9245.34 rows=480154 width=21) (actual time=0.043..98.529 rows=480154 loops=1)
+                                                         Hash Cond: ((r_1.bv)::text = (v_1.bv)::text)
+                                                         Buffers: shared hit=3061
+                                                         ->  Seq Scan on videolikes r_1  (cost=0.00..7860.54 rows=480154 width=21) (actual time=0.002..26.928 rows=480154 loops=1)
+                                                               Buffers: shared hit=3059
+                                                         ->  Hash  (cost=2.44..2.44 rows=44 width=13) (actual time=0.022..0.023 rows=44 loops=1)
+                                                               Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                                               Buffers: shared hit=2
+                                                               ->  Seq Scan on videos v_1  (cost=0.00..2.44 rows=44 width=13) (actual time=0.008..0.013 rows=44 loops=1)
+                                                                     Buffers: shared hit=2
+                           ->  Sort  (cost=10848.21..10848.32 rows=44 width=21) (actual time=140.608..140.616 rows=44 loops=1)
+                                 Sort Key: c.bv
+                                 Sort Method: quicksort  Memory: 27kB
+                                 Buffers: shared hit=2851
+                                 ->  Subquery Scan on c  (cost=10846.12..10847.01 rows=44 width=21) (actual time=140.539..140.551 rows=44 loops=1)
+                                       Buffers: shared hit=2851
+                                       ->  HashAggregate  (cost=10846.12..10846.57 rows=44 width=21) (actual time=140.537..140.545 rows=44 loops=1)
+                                             Group Key: v_2.bv
+                                             Batches: 1  Memory Usage: 24kB
+                                             Buffers: shared hit=2851
+                                             ->  Hash Right Join  (cost=2.99..8610.36 rows=447153 width=21) (actual time=0.049..92.076 rows=447153 loops=1)
+                                                   Hash Cond: ((r_2.bv)::text = (v_2.bv)::text)
+                                                   Buffers: shared hit=2851
+                                                   ->  Seq Scan on coins r_2  (cost=0.00..7320.53 rows=447153 width=21) (actual time=0.002..24.863 rows=447153 loops=1)
+                                                         Buffers: shared hit=2849
+                                                   ->  Hash  (cost=2.44..2.44 rows=44 width=13) (actual time=0.023..0.024 rows=44 loops=1)
+                                                         Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                                         Buffers: shared hit=2
+                                                         ->  Seq Scan on videos v_2  (cost=0.00..2.44 rows=44 width=13) (actual time=0.008..0.013 rows=44 loops=1)
+                                                               Buffers: shared hit=2
+                     ->  Sort  (cost=10446.66..10446.77 rows=44 width=21) (actual time=136.939..136.943 rows=44 loops=1)
+                           Sort Key: d.bv
+                           Sort Method: quicksort  Memory: 27kB
+                           Buffers: shared hit=2745
+                           ->  Subquery Scan on d  (cost=10444.58..10445.46 rows=44 width=21) (actual time=136.867..136.878 rows=44 loops=1)
+                                 Buffers: shared hit=2745
+                                 ->  HashAggregate  (cost=10444.58..10445.02 rows=44 width=21) (actual time=136.865..136.872 rows=44 loops=1)
+                                       Group Key: v_3.bv
+                                       Batches: 1  Memory Usage: 24kB
+                                       Buffers: shared hit=2745
+                                       ->  Hash Right Join  (cost=2.99..8291.47 rows=430622 width=21) (actual time=0.049..89.808 rows=430622 loops=1)
+                                             Hash Cond: ((r_3.bv)::text = (v_3.bv)::text)
+                                             Buffers: shared hit=2745
+                                             ->  Seq Scan on favorites r_3  (cost=0.00..7049.22 rows=430622 width=21) (actual time=0.008..24.765 rows=430622 loops=1)
+                                                   Buffers: shared hit=2743
+                                             ->  Hash  (cost=2.44..2.44 rows=44 width=13) (actual time=0.022..0.022 rows=44 loops=1)
+                                                   Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                                   Buffers: shared hit=2
+                                                   ->  Seq Scan on videos v_3  (cost=0.00..2.44 rows=44 width=13) (actual time=0.007..0.012 rows=44 loops=1)
+                                                         Buffers: shared hit=2
+               ->  Hash  (cost=13.62..13.62 rows=44 width=21) (actual time=0.206..0.210 rows=44 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 11kB
+                     Buffers: shared hit=6
+                     ->  Subquery Scan on e  (cost=12.74..13.62 rows=44 width=21) (actual time=0.186..0.197 rows=44 loops=1)
+                           Buffers: shared hit=6
+                           ->  HashAggregate  (cost=12.74..13.18 rows=44 width=21) (actual time=0.185..0.192 rows=44 loops=1)
+                                 Group Key: v_4.bv
+                                 Batches: 1  Memory Usage: 24kB
+                                 Buffers: shared hit=6
+                                 ->  Hash Right Join  (cost=2.99..11.13 rows=322 width=21) (actual time=0.050..0.142 rows=324 loops=1)
+                                       Hash Cond: ((r_4.bv)::text = (v_4.bv)::text)
+                                       Buffers: shared hit=6
+                                       ->  Seq Scan on danmus r_4  (cost=0.00..7.22 rows=322 width=21) (actual time=0.002..0.023 rows=322 loops=1)
+                                             Buffers: shared hit=4
+                                       ->  Hash  (cost=2.44..2.44 rows=44 width=13) (actual time=0.035..0.036 rows=44 loops=1)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                             Buffers: shared hit=2
+                                             ->  Seq Scan on videos v_4  (cost=0.00..2.44 rows=44 width=13) (actual time=0.005..0.013 rows=44 loops=1)
+                                                   Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=23
+ Planning Time: 0.956 ms
+ Execution Time: 725.281 ms
+(121 rows)
+

@@ -1,0 +1,7 @@
+-- likeVideo as the current implementation runs it: authentication, then one toggle statement.
+\set i random(1, 37000)
+\set j random(1, :videos)
+select mid as me, password as pw from bench_users where i = :i \gset
+select bv from bench_videos where i = :j \gset
+select mid, identity from users where mid = :me and password = :pw;
+with target as (select v.bv from videos v where v.bv = :bv and v.owner_mid <> :me and (false or v.owner_mid = :me or (v.review_time is not null and (v.public_time is null or v.public_time <= '2023-12-30 12:00:00')))), removed as (delete from videolikes t using target where t.bv = target.bv and t.mid = :me returning t.bv), added as (insert into videolikes (bv, mid) select bv, :me from target where not exists (select 1 from removed) on conflict do nothing returning bv) select exists (select 1 from added);

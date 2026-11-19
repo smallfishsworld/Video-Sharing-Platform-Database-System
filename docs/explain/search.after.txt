@@ -1,0 +1,39 @@
+SET
+      bv      
+--------------
+ BV1PK4y1b7dt
+ BV1rq4y1k7SH
+(2 rows)
+
+                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=14.97..14.99 rows=10 width=25) (actual time=0.341..0.342 rows=2 loops=1)
+   Buffers: shared hit=11
+   ->  Sort  (cost=14.97..15.08 rows=44 width=25) (actual time=0.340..0.341 rows=2 loops=1)
+         Sort Key: (sum(((((length(lower((v.title)::text)) - length(replace(lower((v.title)::text), lower(w.w), ''::text))) / length(lower(w.w))) + ((length(lower((COALESCE(v.description, ''::character varying))::text)) - length(replace(lower((COALESCE(v.description, ''::character varying))::text), lower(w.w), ''::text))) / length(lower(w.w)))) + ((length(lower((v.owner_name)::text)) - length(replace(lower((v.owner_name)::text), lower(w.w), ''::text))) / length(lower(w.w)))))) DESC, s.viewers DESC, v.bv
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=11
+         ->  Nested Loop  (cost=2.18..14.02 rows=44 width=25) (actual time=0.202..0.337 rows=2 loops=1)
+               Buffers: shared hit=11
+               ->  Hash Join  (cost=1.99..4.78 rows=44 width=277) (actual time=0.021..0.039 rows=44 loops=1)
+                     Hash Cond: ((v.bv)::text = (s.bv)::text)
+                     Buffers: shared hit=3
+                     ->  Seq Scan on videos v  (cost=0.00..2.66 rows=44 width=273) (actual time=0.004..0.013 rows=44 loops=1)
+                           Filter: ((owner_mid = 200267) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone))))
+                           Buffers: shared hit=2
+                     ->  Hash  (cost=1.44..1.44 rows=44 width=17) (actual time=0.013..0.013 rows=44 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 11kB
+                           Buffers: shared hit=1
+                           ->  Seq Scan on video_stats s  (cost=0.00..1.44 rows=44 width=17) (actual time=0.002..0.005 rows=44 loops=1)
+                                 Buffers: shared hit=1
+               ->  Aggregate  (cost=0.19..0.20 rows=1 width=8) (actual time=0.007..0.007 rows=0 loops=44)
+                     Filter: (sum(((((length(lower((v.title)::text)) - length(replace(lower((v.title)::text), lower(w.w), ''::text))) / length(lower(w.w))) + ((length(lower((COALESCE(v.description, ''::character varying))::text)) - length(replace(lower((COALESCE(v.description, ''::character varying))::text), lower(w.w), ''::text))) / length(lower(w.w)))) + ((length(lower((v.owner_name)::text)) - length(replace(lower((v.owner_name)::text), lower(w.w), ''::text))) / length(lower(w.w))))) > 0)
+                     Rows Removed by Filter: 1
+                     Buffers: shared hit=8
+                     ->  Function Scan on unnest w  (cost=0.00..0.02 rows=2 width=32) (actual time=0.000..0.000 rows=2 loops=44)
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.273 ms
+ Execution Time: 0.373 ms
+(28 rows)
+

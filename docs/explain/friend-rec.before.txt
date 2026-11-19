@@ -1,0 +1,143 @@
+SET
+  mid1  | cnt | level 
+--------+-----+-------
+ 448459 |   5 |     6
+ 538976 |   5 |     6
+ 551821 |   5 |     6
+ 575750 |   5 |     6
+ 604780 |   5 |     6
+ 613293 |   5 |     6
+(6 rows)
+
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=76256.63..76256.64 rows=6 width=20) (actual time=328.711..330.746 rows=6 loops=1)
+   Buffers: shared hit=32791
+   ->  Sort  (cost=76256.57..76293.65 rows=14833 width=20) (actual time=328.707..330.742 rows=30 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, b.mid1
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=32791
+         ->  Hash Anti Join  (cost=74560.15..75818.48 rows=14833 width=20) (actual time=321.277..330.273 rows=4851 loops=1)
+               Hash Cond: (b.mid1 = h.mid2)
+               Buffers: shared hit=32791
+               ->  Hash Join  (cost=74540.37..75575.63 rows=14983 width=20) (actual time=321.236..329.721 rows=4857 loops=1)
+                     Hash Cond: (u.mid = b.mid1)
+                     Buffers: shared hit=32787
+                     ->  Seq Scan on users u  (cost=0.00..935.81 rows=37881 width=12) (actual time=0.006..2.429 rows=37881 loops=1)
+                           Buffers: shared hit=557
+                     ->  Hash  (cost=74353.09..74353.09 rows=14983 width=16) (actual time=321.206..323.236 rows=4857 loops=1)
+                           Buckets: 16384  Batches: 1  Memory Usage: 356kB
+                           Buffers: shared hit=32230
+                           ->  Finalize HashAggregate  (cost=74203.26..74353.09 rows=14983 width=16) (actual time=320.087..322.655 rows=4857 loops=1)
+                                 Group Key: b.mid1
+                                 Batches: 1  Memory Usage: 1297kB
+                                 Buffers: shared hit=32230
+                                 ->  Gather  (cost=70907.00..74053.43 rows=29966 width=16) (actual time=318.060..320.830 rows=5070 loops=1)
+                                       Workers Planned: 2
+                                       Workers Launched: 2
+                                       Buffers: shared hit=32230
+                                       ->  Partial HashAggregate  (cost=69907.00..70056.83 rows=14983 width=16) (actual time=312.858..313.173 rows=1690 loops=3)
+                                             Group Key: b.mid1
+                                             Batches: 1  Memory Usage: 913kB
+                                             Buffers: shared hit=32230
+                                             Worker 0:  Batches: 1  Memory Usage: 913kB
+                                             Worker 1:  Batches: 1  Memory Usage: 913kB
+                                             ->  Hash Join  (cost=19.77..69782.72 rows=24855 width=8) (actual time=0.121..311.711 rows=2238 loops=3)
+                                                   Hash Cond: (b.mid2 = a.mid2)
+                                                   Buffers: shared hit=32230
+                                                   ->  Parallel Seq Scan on followings b  (cost=0.00..63245.23 rows=2482661 width=16) (actual time=0.009..170.901 rows=1986242 loops=3)
+                                                         Filter: (mid1 <> 1727180)
+                                                         Rows Removed by Filter: 14
+                                                         Buffers: shared hit=32210
+                                                   ->  Hash  (cost=15.05..15.05 rows=378 width=8) (actual time=0.055..0.056 rows=43 loops=3)
+                                                         Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                                         Buffers: shared hit=20
+                                                         ->  Index Only Scan using followings_pkey on followings a  (cost=0.43..15.05 rows=378 width=8) (actual time=0.044..0.048 rows=43 loops=3)
+                                                               Index Cond: (mid1 = 1727180)
+                                                               Heap Fetches: 0
+                                                               Buffers: shared hit=20
+               ->  Hash  (cost=15.05..15.05 rows=378 width=8) (actual time=0.032..0.033 rows=43 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                     Buffers: shared hit=4
+                     ->  Index Only Scan using followings_pkey on followings h  (cost=0.43..15.05 rows=378 width=8) (actual time=0.023..0.027 rows=43 loops=1)
+                           Index Cond: (mid1 = 1727180)
+                           Heap Fetches: 0
+                           Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.398 ms
+ Execution Time: 330.955 ms
+(56 rows)
+
+  mid1   | cnt | level 
+---------+-----+-------
+  494881 | 145 |     6
+ 1504125 | 144 |     6
+  144283 | 143 |     6
+ 1617604 | 143 |     6
+  356561 | 142 |     6
+  793095 | 142 |     6
+  891534 | 140 |     6
+ 1751487 | 140 |     6
+(8 rows)
+
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=76232.73..76232.75 rows=8 width=20) (actual time=439.878..439.973 rows=8 loops=1)
+   Buffers: shared hit=32823
+   ->  Sort  (cost=76232.69..76269.78 rows=14833 width=20) (actual time=439.874..439.969 rows=24 loops=1)
+         Sort Key: (count(*)) DESC, u.level DESC, b.mid1
+         Sort Method: top-N heapsort  Memory: 27kB
+         Buffers: shared hit=32823
+         ->  Hash Anti Join  (cost=74560.15..75818.48 rows=14833 width=20) (actual time=424.274..438.018 rows=21981 loops=1)
+               Hash Cond: (b.mid1 = h.mid2)
+               Buffers: shared hit=32823
+               ->  Hash Join  (cost=74540.37..75575.63 rows=14983 width=20) (actual time=423.910..434.748 rows=23059 loops=1)
+                     Hash Cond: (u.mid = b.mid1)
+                     Buffers: shared hit=32811
+                     ->  Seq Scan on users u  (cost=0.00..935.81 rows=37881 width=12) (actual time=0.007..2.657 rows=37881 loops=1)
+                           Buffers: shared hit=557
+                     ->  Hash  (cost=74353.09..74353.09 rows=14983 width=16) (actual time=423.878..423.968 rows=23059 loops=1)
+                           Buckets: 32768 (originally 16384)  Batches: 1 (originally 1)  Memory Usage: 1337kB
+                           Buffers: shared hit=32254
+                           ->  Finalize HashAggregate  (cost=74203.26..74353.09 rows=14983 width=16) (actual time=417.732..420.612 rows=23059 loops=1)
+                                 Group Key: b.mid1
+                                 Batches: 1  Memory Usage: 2833kB
+                                 Buffers: shared hit=32254
+                                 ->  Gather  (cost=70907.00..74053.43 rows=29966 width=16) (actual time=408.620..412.138 rows=24868 loops=1)
+                                       Workers Planned: 2
+                                       Workers Launched: 2
+                                       Buffers: shared hit=32254
+                                       ->  Partial HashAggregate  (cost=69907.00..70056.83 rows=14983 width=16) (actual time=403.631..404.974 rows=8289 loops=3)
+                                             Group Key: b.mid1
+                                             Batches: 1  Memory Usage: 1809kB
+                                             Buffers: shared hit=32254
+                                             Worker 0:  Batches: 1  Memory Usage: 1809kB
+                                             Worker 1:  Batches: 1  Memory Usage: 1297kB
+                                             ->  Hash Join  (cost=19.77..69782.72 rows=24855 width=8) (actual time=0.451..386.265 rows=92572 loops=3)
+                                                   Hash Cond: (b.mid2 = a.mid2)
+                                                   Buffers: shared hit=32254
+                                                   ->  Parallel Seq Scan on followings b  (cost=0.00..63245.23 rows=2482661 width=16) (actual time=0.009..183.425 rows=1985669 loops=3)
+                                                         Filter: (mid1 <> 882400)
+                                                         Rows Removed by Filter: 587
+                                                         Buffers: shared hit=32210
+                                                   ->  Hash  (cost=15.05..15.05 rows=378 width=8) (actual time=0.430..0.431 rows=1762 loops=3)
+                                                         Buckets: 2048 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 85kB
+                                                         Buffers: shared hit=44
+                                                         ->  Index Only Scan using followings_pkey on followings a  (cost=0.43..15.05 rows=378 width=8) (actual time=0.045..0.231 rows=1762 loops=3)
+                                                               Index Cond: (mid1 = 882400)
+                                                               Heap Fetches: 0
+                                                               Buffers: shared hit=44
+               ->  Hash  (cost=15.05..15.05 rows=378 width=8) (actual time=0.354..0.355 rows=1762 loops=1)
+                     Buckets: 2048 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 85kB
+                     Buffers: shared hit=12
+                     ->  Index Only Scan using followings_pkey on followings h  (cost=0.43..15.05 rows=378 width=8) (actual time=0.028..0.192 rows=1762 loops=1)
+                           Index Cond: (mid1 = 882400)
+                           Heap Fetches: 0
+                           Buffers: shared hit=12
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.391 ms
+ Execution Time: 440.842 ms
+(56 rows)
+

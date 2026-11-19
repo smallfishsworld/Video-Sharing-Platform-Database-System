@@ -1,0 +1,4 @@
+-- displayDanmu (filter off) as the current implementation runs it: one statement.
+\set j random(1, :videos)
+select bv, duration from bench_videos where i = :j \gset
+select array(select d.id from danmus d where d.bv = v.bv and d.time between 0 and :duration order by d.time, d.id) from videos v where v.bv = :bv and :duration <= v.duration and (v.review_time is not null and (v.public_time is null or v.public_time <= '2023-12-30 12:00:00'));

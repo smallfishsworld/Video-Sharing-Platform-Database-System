@@ -1,0 +1,39 @@
+SET
+      bv      
+--------------
+ BV1Rg411w7uU
+ BV1s7411j7yk
+ BV1vZ4y187Zs
+ BV1aG4y1z746
+ BV1VG4y1K7Nu
+ BV1F7411v7MH
+ BV1sz411z7Qb
+ BV1cX4y1L7nq
+ BV1rq4y1k7SH
+ BV1Kb411L79v
+(10 rows)
+
+                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=8.04..8.06 rows=10 width=21) (actual time=0.075..0.077 rows=10 loops=1)
+   Buffers: shared hit=3
+   ->  Sort  (cost=8.04..8.15 rows=44 width=21) (actual time=0.074..0.075 rows=10 loops=1)
+         Sort Key: (CASE WHEN (s.viewers = 0) THEN '0'::double precision ELSE ((((LEAST(((s.likes)::double precision / (s.viewers)::double precision), '1'::double precision) + LEAST(((s.coins)::double precision / (s.viewers)::double precision), '1'::double precision)) + LEAST(((s.favorites)::double precision / (s.viewers)::double precision), '1'::double precision)) + ((s.danmus)::double precision / (s.viewers)::double precision)) + ((s.view_time_sum / (s.viewers)::double precision) / v.duration)) END) DESC, v.bv
+         Sort Method: top-N heapsort  Memory: 26kB
+         Buffers: shared hit=3
+         ->  Hash Join  (cost=1.99..7.09 rows=44 width=21) (actual time=0.022..0.051 rows=44 loops=1)
+               Hash Cond: ((v.bv)::text = (s.bv)::text)
+               Buffers: shared hit=3
+               ->  Seq Scan on videos v  (cost=0.00..2.44 rows=44 width=21) (actual time=0.002..0.006 rows=44 loops=1)
+                     Buffers: shared hit=2
+               ->  Hash  (cost=1.44..1.44 rows=44 width=41) (actual time=0.014..0.014 rows=44 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 12kB
+                     Buffers: shared hit=1
+                     ->  Seq Scan on video_stats s  (cost=0.00..1.44 rows=44 width=41) (actual time=0.002..0.006 rows=44 loops=1)
+                           Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.112 ms
+ Execution Time: 0.094 ms
+(20 rows)
+
