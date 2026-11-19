@@ -1,0 +1,227 @@
+ donor | coins_before |    video     
+-------+--------------+--------------
+    51 |           91 | BV1PK4y1b7dt
+(1 row)
+
+== execution 1 of 5 (first in this session)
+BEGIN
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.342..0.344 rows=0 loops=1)
+   Buffers: shared hit=58 read=4 dirtied=10
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.027..0.029 rows=1 loops=1)
+           Buffers: shared hit=5
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.009..0.012 rows=1 loops=1)
+                 Filter: ((owner_mid <> 51) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 51) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.016..0.016 rows=0 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 51))
+                 Heap Fetches: 0
+                 Buffers: shared hit=3
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.264..0.266 rows=1 loops=1)
+           Buffers: shared hit=44 read=4 dirtied=6
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.017..0.018 rows=1 loops=1)
+                 One-Time Filter: $1
+                 Buffers: shared hit=3
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (actual time=0.013..0.013 rows=1 loops=1)
+                       Index Cond: (mid = 51)
+                       Filter: (coin > 0)
+                       Buffers: shared hit=3
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.294..0.300 rows=1 loops=1)
+         Buffers: shared hit=49 read=4 dirtied=6
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.029..0.031 rows=1 loops=1)
+               Buffers: shared hit=5
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (actual time=0.264..0.267 rows=1 loops=1)
+               Buffers: shared hit=44 read=4 dirtied=6
+ Planning:
+   Buffers: shared hit=96
+ Planning Time: 0.296 ms
+ Trigger users_audit_update on users: time=1.145 calls=1
+ Trigger for constraint coins_bv_fkey on coins: time=0.203 calls=1
+ Trigger for constraint coins_mid_fkey on coins: time=0.058 calls=1
+ Trigger derived_coins_insert on coins: time=0.750 calls=1
+ Execution Time: 2.670 ms
+(39 rows)
+
+ROLLBACK
+== execution 2 of 5
+BEGIN
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.116..0.117 rows=0 loops=1)
+   Buffers: shared hit=33
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.028..0.030 rows=1 loops=1)
+           Buffers: shared hit=7
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.011..0.014 rows=1 loops=1)
+                 Filter: ((owner_mid <> 51) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 51) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.015..0.015 rows=0 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 51))
+                 Heap Fetches: 1
+                 Buffers: shared hit=5
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.069..0.071 rows=1 loops=1)
+           Buffers: shared hit=19
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.010..0.011 rows=1 loops=1)
+                 One-Time Filter: $1
+                 Buffers: shared hit=5
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (actual time=0.008..0.009 rows=1 loops=1)
+                       Index Cond: (mid = 51)
+                       Filter: (coin > 0)
+                       Buffers: shared hit=5
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.100..0.105 rows=1 loops=1)
+         Buffers: shared hit=26
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.029..0.032 rows=1 loops=1)
+               Buffers: shared hit=7
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (actual time=0.069..0.072 rows=1 loops=1)
+               Buffers: shared hit=19
+ Planning Time: 0.163 ms
+ Trigger users_audit_update on users: time=0.063 calls=1
+ Trigger for constraint coins_bv_fkey on coins: time=0.051 calls=1
+ Trigger for constraint coins_mid_fkey on coins: time=0.024 calls=1
+ Trigger derived_coins_insert on coins: time=0.135 calls=1
+ Execution Time: 0.476 ms
+(37 rows)
+
+ROLLBACK
+== execution 3 of 5
+BEGIN
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.143..0.145 rows=0 loops=1)
+   Buffers: shared hit=33
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.025..0.029 rows=1 loops=1)
+           Buffers: shared hit=7
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.011..0.014 rows=1 loops=1)
+                 Filter: ((owner_mid <> 51) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 51) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.013..0.013 rows=0 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 51))
+                 Heap Fetches: 1
+                 Buffers: shared hit=5
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.063..0.099 rows=1 loops=1)
+           Buffers: shared hit=19
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.009..0.010 rows=1 loops=1)
+                 One-Time Filter: $1
+                 Buffers: shared hit=5
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (actual time=0.007..0.008 rows=1 loops=1)
+                       Index Cond: (mid = 51)
+                       Filter: (coin > 0)
+                       Buffers: shared hit=5
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.091..0.131 rows=1 loops=1)
+         Buffers: shared hit=26
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.027..0.030 rows=1 loops=1)
+               Buffers: shared hit=7
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (actual time=0.063..0.099 rows=1 loops=1)
+               Buffers: shared hit=19
+ Planning Time: 0.156 ms
+ Trigger users_audit_update on users: time=0.108 calls=1
+ Trigger for constraint coins_bv_fkey on coins: time=0.051 calls=1
+ Trigger for constraint coins_mid_fkey on coins: time=0.023 calls=1
+ Trigger derived_coins_insert on coins: time=0.095 calls=1
+ Execution Time: 0.498 ms
+(37 rows)
+
+ROLLBACK
+== execution 4 of 5
+BEGIN
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.112..0.113 rows=0 loops=1)
+   Buffers: shared hit=33
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.023..0.027 rows=1 loops=1)
+           Buffers: shared hit=7
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.011..0.014 rows=1 loops=1)
+                 Filter: ((owner_mid <> 51) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 51) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.012..0.012 rows=0 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 51))
+                 Heap Fetches: 1
+                 Buffers: shared hit=5
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.069..0.071 rows=1 loops=1)
+           Buffers: shared hit=19
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.008..0.010 rows=1 loops=1)
+                 One-Time Filter: $1
+                 Buffers: shared hit=5
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (actual time=0.007..0.008 rows=1 loops=1)
+                       Index Cond: (mid = 51)
+                       Filter: (coin > 0)
+                       Buffers: shared hit=5
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.096..0.102 rows=1 loops=1)
+         Buffers: shared hit=26
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.025..0.028 rows=1 loops=1)
+               Buffers: shared hit=7
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (actual time=0.070..0.072 rows=1 loops=1)
+               Buffers: shared hit=19
+ Planning Time: 0.133 ms
+ Trigger users_audit_update on users: time=0.049 calls=1
+ Trigger for constraint coins_bv_fkey on coins: time=0.035 calls=1
+ Trigger for constraint coins_mid_fkey on coins: time=0.029 calls=1
+ Trigger derived_coins_insert on coins: time=0.089 calls=1
+ Execution Time: 0.350 ms
+(37 rows)
+
+ROLLBACK
+== execution 5 of 5
+BEGIN
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Insert on coins  (cost=15.66..15.71 rows=0 width=0) (actual time=0.085..0.086 rows=0 loops=1)
+   Buffers: shared hit=33
+   CTE target
+     ->  Nested Loop Anti Join  (cost=0.42..7.33 rows=1 width=13) (actual time=0.020..0.022 rows=1 loops=1)
+           Buffers: shared hit=7
+           ->  Seq Scan on videos v  (cost=0.00..2.88 rows=1 width=13) (actual time=0.008..0.010 rows=1 loops=1)
+                 Filter: ((owner_mid <> 51) AND ((bv)::text = 'BV1PK4y1b7dt'::text) AND ((owner_mid = 51) OR ((review_time IS NOT NULL) AND ((public_time IS NULL) OR (public_time <= '2023-12-30 12:00:00'::timestamp without time zone)))))
+                 Rows Removed by Filter: 43
+                 Buffers: shared hit=2
+           ->  Index Only Scan using coins_pkey on coins c  (cost=0.42..4.44 rows=1 width=13) (actual time=0.011..0.011 rows=0 loops=1)
+                 Index Cond: ((bv = 'BV1PK4y1b7dt'::text) AND (mid = 51))
+                 Heap Fetches: 1
+                 Buffers: shared hit=5
+   CTE charged
+     ->  Update on users  (cost=0.31..8.33 rows=1 width=10) (actual time=0.050..0.052 rows=1 loops=1)
+           Buffers: shared hit=19
+           InitPlan 2 (returns $1)
+             ->  CTE Scan on target target_1  (cost=0.00..0.02 rows=1 width=0) (actual time=0.000..0.000 rows=1 loops=1)
+           ->  Result  (cost=0.29..8.31 rows=1 width=10) (actual time=0.007..0.008 rows=1 loops=1)
+                 One-Time Filter: $1
+                 Buffers: shared hit=5
+                 ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=10) (actual time=0.006..0.006 rows=1 loops=1)
+                       Index Cond: (mid = 51)
+                       Filter: (coin > 0)
+                       Buffers: shared hit=5
+   ->  Nested Loop  (cost=0.00..0.05 rows=1 width=40) (actual time=0.073..0.077 rows=1 loops=1)
+         Buffers: shared hit=26
+         ->  CTE Scan on target  (cost=0.00..0.02 rows=1 width=32) (actual time=0.021..0.023 rows=1 loops=1)
+               Buffers: shared hit=7
+         ->  CTE Scan on charged  (cost=0.00..0.02 rows=1 width=8) (actual time=0.051..0.052 rows=1 loops=1)
+               Buffers: shared hit=19
+ Planning Time: 0.135 ms
+ Trigger users_audit_update on users: time=0.049 calls=1
+ Trigger for constraint coins_bv_fkey on coins: time=0.030 calls=1
+ Trigger for constraint coins_mid_fkey on coins: time=0.017 calls=1
+ Trigger derived_coins_insert on coins: time=0.098 calls=1
+ Execution Time: 0.317 ms
+(37 rows)
+
+ROLLBACK
