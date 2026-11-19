@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Markdown tables of the round-2 WriteBench runs, as in docs/benchmark/round2/writebench/summary.md.
+
+    python3 scripts/writebench/tables.py [DIR]     # DIR defaults to docs/benchmark/round2/writebench
+
+It reads the runs by their labels: steady-{orig,new}-c{1,8}-r<i>.json (steady state, 1 and 8
+clients), delacct-{orig,new}-c8-r<i>.json (deleteAccount on 8 clients), count-{orig,new}.json
+(statements and round trips), stress-{orig,r1,new}.json and reads-{orig,new}-r<i>.json, and the
+<label>.deadlocks.txt file next to each run (pg_stat_database.deadlocks before and after it).
+Figures over several runs are the median of the per-run figures, with the smallest and largest
+run in brackets. "orig" is the original implementation, "r1" this project at the end of round 1
+(commit 978fe40), "new" this version.
+"""
+import glob
+import json
+import os
+import statistics
+import sys
+
+D = sys.argv[1] if len(sys.argv) > 1 else "docs/benchmark/round2/writebench"
+OPS = ["sendDanmu", "likeDanmu", "coinVideo", "likeVideo", "collectVideo", "postVideo", "register",
+       "updateVideoInfo", "reviewVideo", "deleteVideo", "deleteVideoWithViews", "deleteAccount", "follow"]
+NAMES = {"orig": "original", "r1": "round 1 (978fe40)", "new": "this version"}
+lines = []
+P = lines.append
+
+
+def runs(pattern):
+    return [json.load(open(f)) for f in sorted(glob.glob(os.path.join(D, pattern)))]
+
+
+def per_op(rs, metric):
+    vals = {}
+    for r in rs:
+        for x in r["results"]:
+            if metric in x and x["calls"]:
+                vals.setdefault(x["op"], []).append(x[metric])
+    return vals
+
+
+def cell(v, digits=2):
+    if not v:
+        return "–"
+    f = f"{{:,.{digits}f}}"
+    return f"{f.format(statistics.median(v))} [{f.format(min(v))}–{f.format(max(v))}]"
+
+
+def deadlocks(pattern):
+    n = []
+    for f in sorted(glob.glob(os.path.join(D, pattern + ".deadlocks.txt"))):
+        t = open(f).read()
+        if "deadlocks_detected_during_run=" in t:
+            n.append(int(t.split("deadlocks_detected_during_run=")[1].split()[0]))
+    return n
+
+
+def errors(part):
+    e = part.get("errors") or {}
+    return " (" + ", ".join(f"{k}: {v}" for k, v in e.items()) + ")" if e else ""
+
+
+def jars(rs):
+    return sorted({(r["options"].get("code_sha", "")[:7], r["options"].get("jar_sha256", "")[:12]) for r in rs})
+
+
+for clients in (1, 8):
+    o, n = runs(f"steady-orig-c{clients}-r*.json"), runs(f"steady-new-c{clients}-r*.json")
+    if not (o or n):
+        continue
+    P(f"\n## Steady state, {clients} client{'s' if clients > 1 else ''}: {len(o)} runs of the original, {len(n)} of this version\n")
+    P(f"Jars (commit, sha256 prefix): original {jars(o)}, this version {jars(n)}. "
+      "p50 and p95 in ms per call, throughput in calls per second, WAL in bytes per call (pg_waldump over the "
+      "operation's LSN range). deleteVideoWithViews deletes 8 imported videos (about 20,000 views each) per run.\n")
+    P("| operation | p50 original | p50 this version | p95 original | p95 this version | throughput original | throughput this version | WAL/call original | WAL/call this version |")
+    P("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    m = {k: (per_op(o, k), per_op(n, k)) for k in ("p50_ms", "p95_ms", "throughput_per_s", "wal_bytes_per_call")}
+    for op in OPS:
+        if op not in m["p50_ms"][0] and op not in m["p50_ms"][1]:
+            continue
+        P(f"| {op} | {cell(m['p50_ms'][0].get(op))} | {cell(m['p50_ms'][1].get(op))} | "
+          f"{cell(m['p95_ms'][0].get(op))} | {cell(m['p95_ms'][1].get(op))} | "
+          f"{cell(m['throughput_per_s'][0].get(op), 0)} | {cell(m['throughput_per_s'][1].get(op), 0)} | "
+          f"{cell(m['wal_bytes_per_call'][0].get(op), 0)} | {cell(m['wal_bytes_per_call'][1].get(op), 0)} |")
+    fails = {}
+    for label, rs in (("original", o), ("this version", n)):
+        for r in rs:
+            for x in r["results"]:
+                if x.get("failed"):
+                    why = ", ".join(f"{k}" for k in x.get("errors", {}))
+                    fails.setdefault((label, x["op"]), []).append(f"{x['failed']} of {x['calls']}" + (f" ({why})" if why else ""))
+    P("")
+    P("Failed calls, per run: " + ("; ".join(f"{k[0]} {k[1]}: {', '.join(v)}" for k, v in fails.items()) or "none") + ".")
+    P(f"Deadlocks detected by the server during each run (pg_stat_database; runs without a .deadlocks.txt file are left out): "
+      f"original {deadlocks(f'steady-orig-c{clients}-r*')}, this version {deadlocks(f'steady-new-c{clients}-r*')}.")
+
+o, n = runs("delacct-orig-c8-r*.json"), runs("delacct-new-c8-r*.json")
+if o or n:
+    P(f"\n## deleteAccount on 8 clients: {len(o)} runs of the original, {len(n)} of this version\n")
+    P("100 measured calls per run after 20 warm-up calls, each deleting a different imported user who owns no video.\n")
+    P("| | p50 ms | p95 ms | max ms | throughput /s | failed calls per run | deadlocks detected per run |")
+    P("|---|---:|---:|---:|---:|---:|---:|")
+    for label, rs, v in (("original", o, "orig"), ("this version", n, "new")):
+        x = [r["results"][0] for r in rs]
+        P(f"| {label} | {cell([a['p50_ms'] for a in x])} | {cell([a['p95_ms'] for a in x])} | {cell([a['max_ms'] for a in x], 0)} | "
+          f"{cell([a['throughput_per_s'] for a in x], 1)} | {[a['failed'] for a in x]} | {deadlocks(f'delacct-{v}-c8-r*')} |")
+
+co, cn = runs("count-orig.json"), runs("count-new.json")
+if co and cn:
+    P("\n## Statements and round trips per call\n")
+    P("Count mode: 20 calls per operation on one thread, server-side prepared statements off; statements are the "
+      "driver's Parse messages, round trips its Sync messages plus simple queries.\n")
+    P("| operation | statements original | statements this version | round trips original | round trips this version |")
+    P("|---|---:|---:|---:|---:|")
+    a = {x["op"]: x for x in co[0]["results"]}
+    b = {x["op"]: x for x in cn[0]["results"]}
+    for op in OPS:
+        if op in a and op in b:
+            P(f"| {op} | {a[op]['statements_per_call']:g} | {b[op]['statements_per_call']:g} | "
+              f"{a[op]['round_trips_per_call']:g} | {b[op]['round_trips_per_call']:g} |")
+
+st = {v: runs(f"stress-{v}.json") for v in ("orig", "r1", "new")}
+if any(st.values()):
+    P("\n## Stress\n")
+    P("| variant | coin: trials overspent | coin: trials with a wrong balance | like toggle: trials with a lost update | "
+      "follow toggle: trials with a lost update | crossing account deletions: trials with an error | deadlocks detected | "
+      "failed calls (coin / like / follow) | connections left open |")
+    P("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for v, rs in st.items():
+        if not rs:
+            continue
+        r = rs[0]["results"]
+        c, li, fo, de = r["coin_double_spend"], r["like_toggle"], r["follow_toggle"], r["crossing_account_deletions"]
+        left = sum(p.get("connections_left_open", 0) for p in (c, li, fo, de))
+        P(f"| {NAMES[v]} | {c['trials_overspent']}/{c['trials']} | {c['trials_with_violation']}/{c['trials']} | "
+          f"{li['trials_with_lost_update']}/{li['trials']} | {fo['trials_with_lost_update']}/{fo['trials']} | "
+          f"{de['trials_with_error']}/{de['trials']}{errors(de)} | {de['server_deadlocks_detected']} | "
+          f"{c['failed_calls']} / {li['failed_calls']} / {fo['failed_calls']} | {left} |")
+
+rd = {v: runs(f"reads-{v}-r*.json") for v in ("orig", "new")}
+if any(rd.values()):
+    P("\n## Reads: the benchmark's steps 4 and 9 replayed in a fresh JVM\n")
+    P("Each pass runs all cases of the step on a parallel stream, as the benchmark does; the benchmark times only pass 1. "
+      "Wall time of the pass in ms; median over the runs [smallest–largest].\n")
+    P("| step | pass | original | this version | correct (original / this version) |")
+    P("|---|---:|---:|---:|---:|")
+    table = {}
+    for v, rs in rd.items():
+        for r in rs:
+            for x in r["results"]:
+                table.setdefault((x["step"], x["pass"]), {}).setdefault(v, []).append(x)
+    for (step, p) in sorted(table, key=lambda k: (k[0] != "hotspot", k[1])):
+        t = table[(step, p)]
+        ok = " / ".join(f"{min(x['correct'] for x in t[v])}/{t[v][0]['cases']}" if v in t else "–" for v in ("orig", "new"))
+        P(f"| {step} | {p} | {cell([x['wall_ms'] for x in t.get('orig', [])], 1)} | "
+          f"{cell([x['wall_ms'] for x in t.get('new', [])], 1)} | {ok} |")
+
+print("\n".join(lines).lstrip("\n"))
