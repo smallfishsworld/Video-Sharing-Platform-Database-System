@@ -2,7 +2,7 @@
 # Interleaved benchmark runs of the 2023 implementation (B) and this version (O) on one boot:
 #
 #   scripts/bench_series.sh --variant plain|settle|analyze --prefix NAME [--rounds 3] [--only B|O]
-#       [--round round2|round3] [--baseline DIR]
+#       [--round round2|round3|round4|...] [--baseline DIR]
 #
 # Round i runs B then O through scripts/bench_instrumented.py, each run under its own exclusive
 # flock on $BENCH_LOCK (default /home/user/work/bench.lock), released between runs. Results go to
