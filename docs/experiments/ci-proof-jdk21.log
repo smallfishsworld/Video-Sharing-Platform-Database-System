@@ -1,4 +1,4 @@
-# ci.yml's build step on the host JDK, in the fresh clone (ac3a0dc), 2026-11-19T14:44:18Z
+# ci.yml's build step on the host JDK, in the fresh clone (01d31bb), 2026-11-19T18:47:02Z
 # command: nice -n 19 bash ./gradlew build --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache
 # (run while holding /home/user/work/bench.lock; --offline, --max-workers=2 and nice: the machine is shared;
 #  --no-build-cache: every task runs; "Picked up" JVM option lines removed)
@@ -23,9 +23,6 @@ Daemon will be stopped at the end of the build
 > Task :sustc-runner:classes
 > Task :sustc-runner:bootJarMainClassName
 > Task :sustc-runner:bootJar
-> Task :sustc-api:compileTestJava
-> Task :sustc-api:processTestResources
-> Task :sustc-api:testClasses
 > Task :sustc-runner:jar
 > Task :sustc-runner:assemble
 > Task :sustc-runner:compileTestJava NO-SOURCE
@@ -33,6 +30,9 @@ Daemon will be stopped at the end of the build
 > Task :sustc-runner:test NO-SOURCE
 > Task :sustc-runner:check UP-TO-DATE
 > Task :sustc-runner:build
+> Task :sustc-api:compileTestJava
+> Task :sustc-api:processTestResources
+> Task :sustc-api:testClasses
 
 > Task :sustc-api:test
 
@@ -44,7 +44,7 @@ Daemon will be stopped at the end of the build
 > Task :sustc-api:check
 > Task :sustc-api:build
 
-[Incubating] Problems report is available at: file://<scratch>/ciproof/clone/build/reports/problems/problems-report.html
+[Incubating] Problems report is available at: file://<scratch>/vs4/ci/clone/build/reports/problems/problems-report.html
 
 Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
 
@@ -52,9 +52,9 @@ You can use '--warning-mode all' to show the individual deprecation warnings and
 
 For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-BUILD SUCCESSFUL in 41s
+BUILD SUCCESSFUL in 40s
 19 actionable tasks: 19 executed
 exit 0
 tasks taken from the build cache: 0
-JUnit, task test: TOTAL 144 tests, 0 failures, 0 errors, 0 skipped
+JUnit, task test: TOTAL 150 tests, 0 failures, 0 errors, 0 skipped
 JUnit, task importerTestInBenchmarkZone: TOTAL 9 tests, 0 failures, 0 errors, 0 skipped
