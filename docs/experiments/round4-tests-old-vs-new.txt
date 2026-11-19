@@ -1,0 +1,78 @@
+# ConcurrencyTest and DerivedDataConsistencyTest on the round-3 code and on the round-4 code
+# (23 tests each, 5 of them new in round 4).
+# Old: a git worktree at 10807b2 (the round-3 code) with only ConcurrencyTest.java and
+#      DerivedDataConsistencyTest.java (sustc-api/src/test/java/io/sustc/service/impl/) replaced by the
+#      versions committed in 6c3f7d3 (the copy of DerivedDataConsistencyTest differed from 6c3f7d3 only by
+#      Spotless line wrapping).
+# New: the working tree later committed as b5bbd84 and 6c3f7d3 (the fixes and the tests), run a minute
+#      before those commits.
+# Old run: one hold of /home/user/work/bench.lock, 17:57:08-17:58:32 UTC, first job of the hold:
+#   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache \
+#       :sustc-api:test --tests 'io.sustc.service.impl.ConcurrencyTest' \
+#       --tests 'io.sustc.service.impl.DerivedDataConsistencyTest'
+#   -> 23 tests completed, 5 failed; BUILD FAILED in 33s
+# New run: one hold, 18:00:00-18:01:01 UTC: spotlessApply, then the whole build (Spotless check and
+#   every test task), same flags:
+#   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache build
+#   -> 149 tests in 15 classes, 0 failed; BUILD SUCCESSFUL in 42s
+# The build before that one (same hold as the old run, 17:58:22) failed 1 of 149 tests:
+#   viewChangesAreRefusedUnderRepeatableRead got "Connection is closed" from the JDBC rollback. The
+#   trigger raised SQLSTATE 0A000 (feature_not_supported), which HikariCP takes for a broken connection,
+#   so the pool closed it. The trigger now raises 25000 (invalid_transaction_state) and the key-update
+#   guard 09000 (triggered_action_exception), which had the same latent problem.
+# Summary below generated from the JUnit XML reports (build/test-results/test/TEST-*.xml).
+
+== old code (10807b2 + the round-4 tests): BUILD FAILED in 33s
+-- ConcurrencyTest: tests=16 failures=3 errors=0 skipped=0 time=11.568s
+  FAIL aViewInsertedDuringAVideoDeletionAddsNoPairOfTheDeletedVideo()                 1.066s org.opentest4j.AssertionFailedError: expected: 0L but was: 2L
+  ok   concurrentCollectTogglesByOneUserAreAppliedOneAfterTheOther()                  0.047s
+  ok   concurrentDanmuLikeTogglesByOneUserAreAppliedOneAfterTheOther()                0.044s
+  ok   concurrentEditsOfOneVideoEachReportTheReviewStateTheyReplaced()                0.061s
+  ok   concurrentFollowTogglesByOneUserAreAppliedOneAfterTheOther()                   0.052s
+  ok   concurrentLikeTogglesByOneUserAreAppliedOneAfterTheOther()                     0.060s
+  ok   concurrentViewChangesKeepTheDerivedTablesExact()                               0.134s
+  ok   concurrentViewsOfOneUserKeepTheCoviewCountsExact()                             0.066s
+  ok   coviewedVideoDeletionsInCallerTransactionsNeverDeadlock()                      2.056s
+  ok   crossingAccountDeletionsBothSucceed()                                          0.075s
+  ok   crossingAccountDeletionsInCallerTransactionsNeverDeadlock()                    0.071s
+  ok   deletingAVideoAndOneOfItsLikersAtOnceBothSucceed()                             3.054s
+  ok   deletingTwoCoviewedVideosAtOnceBothSucceed()                                   3.056s
+  ok   manyConcurrentTogglesLoseNoUpdate()                                            0.199s
+  FAIL mutuallyFollowingNewAccountsDeletedInCallerTransactionsNeverDeadlock()         1.453s java.util.concurrent.ExecutionException: org.springframework.dao.DeadlockLoserDataAccessException: PreparedStatementCallback; SQL [select pg_advisory_
+  FAIL onlyPermittedDeletionsTakeTheDeletionLock()                                    0.047s org.opentest4j.AssertionFailedError: expected: 0L but was: 1L
+-- DerivedDataConsistencyTest: tests=7 failures=2 errors=0 skipped=0 time=2.147s
+  ok   [1] seed=1                                                                     0.671s
+  ok   [2] seed=20231230                                                              0.588s
+  ok   [3] seed=424242                                                                0.703s
+  FAIL aCoviewCountBelowItsLossFailsTheDeletion()                                     0.036s java.lang.AssertionError: Expecting code to raise a throwable.
+  ok   theKeyOfAViewersRowCannotBeUpdated()                                           0.056s
+  ok   videoStatsRowsFollowTheirVideos()                                              0.027s
+  FAIL viewChangesAreRefusedUnderRepeatableRead()                                     0.041s java.lang.AssertionError: Expecting code to raise a throwable.
+
+== new code (b5bbd84 + 6c3f7d3): BUILD SUCCESSFUL in 42s
+-- ConcurrencyTest: tests=16 failures=0 errors=0 skipped=0 time=9.995s
+  ok   aViewInsertedDuringAVideoDeletionAddsNoPairOfTheDeletedVideo()                 1.078s
+  ok   concurrentCollectTogglesByOneUserAreAppliedOneAfterTheOther()                  0.067s
+  ok   concurrentDanmuLikeTogglesByOneUserAreAppliedOneAfterTheOther()                0.057s
+  ok   concurrentEditsOfOneVideoEachReportTheReviewStateTheyReplaced()                0.066s
+  ok   concurrentFollowTogglesByOneUserAreAppliedOneAfterTheOther()                   0.062s
+  ok   concurrentLikeTogglesByOneUserAreAppliedOneAfterTheOther()                     0.076s
+  ok   concurrentViewChangesKeepTheDerivedTablesExact()                               0.154s
+  ok   concurrentViewsOfOneUserKeepTheCoviewCountsExact()                             0.074s
+  ok   coviewedVideoDeletionsInCallerTransactionsNeverDeadlock()                      1.306s
+  ok   crossingAccountDeletionsBothSucceed()                                          0.079s
+  ok   crossingAccountDeletionsInCallerTransactionsNeverDeadlock()                    0.088s
+  ok   deletingAVideoAndOneOfItsLikersAtOnceBothSucceed()                             3.087s
+  ok   deletingTwoCoviewedVideosAtOnceBothSucceed()                                   3.083s
+  ok   manyConcurrentTogglesLoseNoUpdate()                                            0.157s
+  ok   mutuallyFollowingNewAccountsDeletedInCallerTransactionsNeverDeadlock()         0.468s
+  ok   onlyPermittedDeletionsTakeTheDeletionLock()                                    0.075s
+-- DerivedDataConsistencyTest: tests=7 failures=0 errors=0 skipped=0 time=3.248s
+  ok   [1] seed=1                                                                     0.918s
+  ok   [2] seed=20231230                                                              0.729s
+  ok   [3] seed=424242                                                                0.633s
+  ok   aCoviewCountBelowItsLossFailsTheDeletion()                                     0.729s
+  ok   theKeyOfAViewersRowCannotBeUpdated()                                           0.080s
+  ok   videoStatsRowsFollowTheirVideos()                                              0.068s
+  ok   viewChangesAreRefusedUnderRepeatableRead()                                     0.061s
+-- whole build: classes=15 tests=149 failed=0

@@ -1,11 +1,12 @@
 # ConcurrencyTest on the round-2 code and on the round-3 code (13 tests each, 2 of them new).
 # Old: a git worktree at a330c0c with only sustc-api/src/test/java/io/sustc/service/impl/ConcurrencyTest.java
-#      replaced by the version of commit 94f5b45. New: the tree of commit 94f5b45 (the fixes and the test).
+#      replaced by the version of commit 94f5b45. New: the working tree later committed as 1d39e53..94f5b45
+#      (the fixes and the test), run two minutes before those commits.
 # Both ran under one hold of /home/user/work/bench.lock, 13:12:32-13:13:44 UTC, with:
 #   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache \
 #       :sustc-api:test --tests 'io.sustc.service.impl.ConcurrencyTest'
-# (the script: scratchpad r3/buildtest.sh; its echoed exit codes were wrong, $? was taken after $(date);
-#  the Gradle logs say BUILD FAILED for the old code and BUILD SUCCESSFUL for the new code).
+# (the script's echoed exit codes were wrong, $? was taken after $(date); the Gradle logs say BUILD FAILED
+#  for the old code and BUILD SUCCESSFUL for the new code).
 # Summary below generated from the JUnit XML reports (build/test-results/test/TEST-*.xml).
 
 == old code: BUILD FAILED in 26s
@@ -49,7 +50,7 @@ importerTestInBenchmarkZone: tests=9 failures=0 errors=0 skipped=0
 
 == gradle check at ac3a0dc (co-view deletion through the indexes), one bench-lock hold 14:33:26-14:34:00 UTC:
 #   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache check
-# BUILD SUCCESSFUL in 33s (Spotless check and every test task); run before the commit, on the same tree
+# BUILD SUCCESSFUL in 33s (tests re-run, Spotless up to date); run before the commit, on the same tree
 test: tests=144 failures=0 errors=0 skipped=0
 importerTestInBenchmarkZone: tests=9 failures=0 errors=0 skipped=0
   of which ConcurrencyTest: tests=13 failures=0 errors=0
