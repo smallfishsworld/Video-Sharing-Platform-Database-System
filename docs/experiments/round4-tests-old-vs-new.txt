@@ -76,3 +76,15 @@
   ok   videoStatsRowsFollowTheirVideos()                                              0.068s
   ok   viewChangesAreRefusedUnderRepeatableRead()                                     0.061s
 -- whole build: classes=15 tests=149 failed=0
+
+== UserControlScriptTest on the round-3 sql/usercontrol.sql
+# A git worktree at 2391ff3 with only sql/usercontrol.sql replaced by the version of 10807b2, one hold of
+# /home/user/work/bench.lock, 18:52:25-18:52:43 UTC:
+#   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache \
+#       :sustc-api:test --tests 'io.sustc.service.impl.UserControlScriptTest'
+#   -> BUILD FAILED in 17s
+-- UserControlScriptTest: tests=1 failures=1
+  FAIL eachRoleHasTheDocumentedRights()   org.opentest4j.AssertionFailedError: [normaluser SELECT on users]
+  (the first check that differs: the round-3 script grants normaluser SELECT on the whole users table,
+   password, qq and wechat included; the test stops at its first failed assertion)
+On the current script the test passes (whole build, 18:26 UTC, and both fresh-clone builds of 01d31bb).
