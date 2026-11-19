@@ -1,0 +1,3 @@
+# docs/experiments/ViewStat.java on sustc-runner/data/import/video.ser, 2026-11-19T09:50:51Z
+videos 44, views 874856, users with views 37881, views per user: median 23 (lower median), mean 23.1, max 36
+co-view rows changed by deleting a user with k views, k(k-1): median user 506, heaviest 1260
