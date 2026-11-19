@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the course benchmark (sustc-runner, profile "benchmark") once against a freshly created
-# schema and saves its report as <out>/<label>.json (plus the runner's log as <label>.log).
+# schema and saves its report as <out>/<label>.json (plus the runner's log as <label>.log, and the
+# commit, working-tree state, jar hash, JVM, server and boot time as <label>.meta).
 #
 #   scripts/benchmark.sh --label optimized-r1 [--out docs/benchmark] [--no-build] [--allow-remote]
 #
@@ -40,6 +41,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$LABEL" ] || usage
+# Resolve --out now: the run below changes directory, and nothing may be dropped before this works.
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd)
 case "$LABEL" in *[!A-Za-z0-9._-]*) echo "the label may only contain letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 
 export PGHOST=${PGHOST:-localhost} PGPORT=${PGPORT:-5432} PGDATABASE=${PGDATABASE:-sustc}
@@ -66,7 +69,10 @@ if [ "$BUILD" -eq 1 ]; then
 fi
 JAR="$REPO/run/sustc-runner.jar"
 [ -f "$JAR" ] || { echo "$JAR not found; run without --no-build" >&2; exit 1; }
-mkdir -p "$OUT"
+if ls "$REPO"/submit/*.jar >/dev/null 2>&1; then
+    echo "refusing to run: $REPO/submit/ holds a jar, which the runner build bundles instead of sustc-api" >&2
+    exit 1
+fi
 
 run() {
     PGOPTIONS="-c client_min_messages=warning" psql -q -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;" >/dev/null
@@ -87,6 +93,14 @@ if [ -n "${BENCH_LOCK:-}" ]; then
     exec 9>>"$BENCH_LOCK"
     flock 9
 fi
+{
+    echo "commit=$(git -C "$REPO" rev-parse HEAD)"
+    echo "uncommitted_paths=$(git -C "$REPO" status --porcelain | wc -l)"
+    echo "jar_sha256=$(sha256sum "$JAR" | cut -d' ' -f1)"
+    echo "java=$(java -version 2>&1 | grep -v '^Picked up' | head -1)"
+    echo "server=$(psql -XAtq -c 'select version()')"
+    echo "boot=$(uptime -s)"
+} >"$OUT/$LABEL.meta"
 start=$(date +%s)
 run
 echo "wall=$(($(date +%s) - start))s" >>"$OUT/$LABEL.log"
