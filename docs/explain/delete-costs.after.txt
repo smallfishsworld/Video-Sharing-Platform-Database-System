@@ -1,0 +1,309 @@
+    video     | views | danmus | likes | coins | favorites | coview_rows 
+--------------+-------+--------+-------+-------+-----------+-------------
+ BV1JZ4y1h7nD | 18179 |     14 | 10429 | 10129 |     10064 |          86
+(1 row)
+
+ account | views | danmus | likes | coins | favorites | follow_rows 
+---------+-------+--------+-------+-------+-----------+-------------
+     168 |    23 |      0 |    20 |    14 |        12 |         177
+(1 row)
+
+== delete video, execution 1 of 5 (first in this session)
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.149..0.149 rows=0 loops=1)
+   Buffers: shared hit=22 dirtied=1
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.009..0.019 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1JZ4y1h7nD'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.082 ms
+ Trigger for constraint coins_bv_fkey on videos: time=6.831 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.196 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=5.135 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.161 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.139 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.050 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=10.222 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=6.076 calls=1
+ Trigger derived_coins_delete on coins: time=1.997 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=0.763 calls=14
+ Trigger derived_danmus_delete on danmus: time=0.486 calls=1
+ Trigger derived_favorites_delete on favorites: time=1.010 calls=1
+ Trigger derived_viewers_delete on viewers: time=3.812 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=1.147 calls=1
+ Execution Time: 38.700 ms
+(24 rows)
+
+ROLLBACK
+== delete video, execution 2 of 5
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.028..0.028 rows=0 loops=1)
+   Buffers: shared hit=4
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.010..0.014 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1JZ4y1h7nD'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning Time: 0.048 ms
+ Trigger for constraint coins_bv_fkey on videos: time=4.794 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.105 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=4.858 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.089 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.113 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.031 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=8.661 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=5.327 calls=1
+ Trigger derived_coins_delete on coins: time=0.753 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=0.372 calls=14
+ Trigger derived_danmus_delete on danmus: time=0.151 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.639 calls=1
+ Trigger derived_viewers_delete on viewers: time=2.010 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.652 calls=1
+ Execution Time: 29.076 ms
+(22 rows)
+
+ROLLBACK
+== delete video, execution 3 of 5
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.023..0.024 rows=0 loops=1)
+   Buffers: shared hit=4
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.009..0.013 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1JZ4y1h7nD'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning Time: 0.039 ms
+ Trigger for constraint coins_bv_fkey on videos: time=4.893 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.123 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=4.811 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.096 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.079 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.033 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=10.231 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=5.262 calls=1
+ Trigger derived_coins_delete on coins: time=0.748 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=0.366 calls=14
+ Trigger derived_danmus_delete on danmus: time=0.167 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.696 calls=1
+ Trigger derived_viewers_delete on viewers: time=2.109 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.678 calls=1
+ Execution Time: 30.742 ms
+(22 rows)
+
+ROLLBACK
+== delete video, execution 4 of 5
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.031..0.031 rows=0 loops=1)
+   Buffers: shared hit=4
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.012..0.018 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1JZ4y1h7nD'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning Time: 0.051 ms
+ Trigger for constraint coins_bv_fkey on videos: time=5.959 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.097 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=4.869 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.099 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.079 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.025 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=9.081 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=5.174 calls=1
+ Trigger derived_coins_delete on coins: time=0.720 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=0.356 calls=14
+ Trigger derived_danmus_delete on danmus: time=0.142 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.677 calls=1
+ Trigger derived_viewers_delete on viewers: time=2.028 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.659 calls=1
+ Execution Time: 30.444 ms
+(22 rows)
+
+ROLLBACK
+== delete video, execution 5 of 5
+BEGIN
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Delete on videos  (cost=0.00..2.55 rows=0 width=0) (actual time=0.030..0.030 rows=0 loops=1)
+   Buffers: shared hit=4
+   ->  Seq Scan on videos  (cost=0.00..2.55 rows=1 width=6) (actual time=0.012..0.017 rows=1 loops=1)
+         Filter: ((bv)::text = 'BV1JZ4y1h7nD'::text)
+         Rows Removed by Filter: 43
+         Buffers: shared hit=2
+ Planning Time: 0.044 ms
+ Trigger for constraint coins_bv_fkey on videos: time=4.819 calls=1
+ Trigger for constraint danmus_bv_fkey on videos: time=0.083 calls=1
+ Trigger for constraint favorites_bv_fkey on videos: time=4.829 calls=1
+ Trigger for constraint video_coviews_bv_fkey on videos: time=0.095 calls=1
+ Trigger for constraint video_coviews_other_bv_fkey on videos: time=0.077 calls=1
+ Trigger for constraint video_stats_bv_fkey on videos: time=0.025 calls=1
+ Trigger for constraint viewers_bv_fkey on videos: time=8.678 calls=1
+ Trigger for constraint videolikes_bv_fkey on videos: time=5.005 calls=1
+ Trigger derived_coins_delete on coins: time=0.741 calls=1
+ Trigger for constraint danmulikes_danmu_id_fkey on danmus: time=0.294 calls=14
+ Trigger derived_danmus_delete on danmus: time=0.169 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.626 calls=1
+ Trigger derived_viewers_delete on viewers: time=2.200 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.724 calls=1
+ Execution Time: 28.881 ms
+(22 rows)
+
+ROLLBACK
+== delete account, execution 1 of 5 (first in this session)
+BEGIN
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Delete on users  (cost=0.29..8.31 rows=0 width=0) (actual time=0.066..0.066 rows=0 loops=1)
+   Buffers: shared hit=25
+   ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=6) (actual time=0.012..0.013 rows=1 loops=1)
+         Index Cond: (mid = 168)
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=43
+ Planning Time: 0.142 ms
+ Trigger for constraint coins_mid_fkey on users: time=0.317 calls=1
+ Trigger for constraint danmulikes_mid_fkey on users: time=0.114 calls=1
+ Trigger for constraint danmus_mid_fkey on users: time=0.043 calls=1
+ Trigger for constraint favorites_mid_fkey on users: time=0.215 calls=1
+ Trigger for constraint followings_followee_mid_fkey on users: time=0.762 calls=1
+ Trigger for constraint followings_follower_mid_fkey on users: time=0.117 calls=1
+ Trigger for constraint videos_owner_mid_fkey on users: time=0.043 calls=1
+ Trigger for constraint videos_reviewer_fkey on users: time=0.068 calls=1
+ Trigger for constraint viewers_mid_fkey on users: time=0.165 calls=1
+ Trigger for constraint videolikes_mid_fkey on users: time=0.136 calls=1
+ Trigger users_audit_delete on users: time=0.512 calls=1
+ Trigger derived_coins_delete on coins: time=0.263 calls=1
+ Trigger derived_danmus_delete on danmus: time=0.128 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.255 calls=1
+ Trigger derived_viewers_delete on viewers: time=10.740 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.501 calls=1
+ Execution Time: 14.491 ms
+(25 rows)
+
+ROLLBACK
+== delete account, execution 2 of 5
+BEGIN
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Delete on users  (cost=0.29..8.31 rows=0 width=0) (actual time=0.032..0.032 rows=0 loops=1)
+   Buffers: shared hit=5
+   ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=6) (actual time=0.017..0.018 rows=1 loops=1)
+         Index Cond: (mid = 168)
+         Buffers: shared hit=3
+ Planning Time: 0.046 ms
+ Trigger for constraint coins_mid_fkey on users: time=0.115 calls=1
+ Trigger for constraint danmulikes_mid_fkey on users: time=0.032 calls=1
+ Trigger for constraint danmus_mid_fkey on users: time=0.025 calls=1
+ Trigger for constraint favorites_mid_fkey on users: time=0.079 calls=1
+ Trigger for constraint followings_followee_mid_fkey on users: time=0.662 calls=1
+ Trigger for constraint followings_follower_mid_fkey on users: time=0.071 calls=1
+ Trigger for constraint videos_owner_mid_fkey on users: time=0.034 calls=1
+ Trigger for constraint videos_reviewer_fkey on users: time=0.022 calls=1
+ Trigger for constraint viewers_mid_fkey on users: time=0.112 calls=1
+ Trigger for constraint videolikes_mid_fkey on users: time=0.107 calls=1
+ Trigger users_audit_delete on users: time=0.116 calls=1
+ Trigger derived_coins_delete on coins: time=0.128 calls=1
+ Trigger derived_danmus_delete on danmus: time=0.031 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.099 calls=1
+ Trigger derived_viewers_delete on viewers: time=11.774 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.330 calls=1
+ Execution Time: 13.806 ms
+(23 rows)
+
+ROLLBACK
+== delete account, execution 3 of 5
+BEGIN
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Delete on users  (cost=0.29..8.31 rows=0 width=0) (actual time=0.035..0.035 rows=0 loops=1)
+   Buffers: shared hit=5
+   ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=6) (actual time=0.019..0.020 rows=1 loops=1)
+         Index Cond: (mid = 168)
+         Buffers: shared hit=3
+ Planning Time: 0.051 ms
+ Trigger for constraint coins_mid_fkey on users: time=0.189 calls=1
+ Trigger for constraint danmulikes_mid_fkey on users: time=0.061 calls=1
+ Trigger for constraint danmus_mid_fkey on users: time=0.037 calls=1
+ Trigger for constraint favorites_mid_fkey on users: time=0.107 calls=1
+ Trigger for constraint followings_followee_mid_fkey on users: time=0.826 calls=1
+ Trigger for constraint followings_follower_mid_fkey on users: time=0.114 calls=1
+ Trigger for constraint videos_owner_mid_fkey on users: time=0.039 calls=1
+ Trigger for constraint videos_reviewer_fkey on users: time=0.027 calls=1
+ Trigger for constraint viewers_mid_fkey on users: time=0.183 calls=1
+ Trigger for constraint videolikes_mid_fkey on users: time=0.163 calls=1
+ Trigger users_audit_delete on users: time=0.091 calls=1
+ Trigger derived_coins_delete on coins: time=0.177 calls=1
+ Trigger derived_danmus_delete on danmus: time=0.046 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.207 calls=1
+ Trigger derived_viewers_delete on viewers: time=12.438 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.330 calls=1
+ Execution Time: 15.107 ms
+(23 rows)
+
+ROLLBACK
+== delete account, execution 4 of 5
+BEGIN
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Delete on users  (cost=0.29..8.31 rows=0 width=0) (actual time=0.033..0.033 rows=0 loops=1)
+   Buffers: shared hit=5
+   ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=6) (actual time=0.017..0.018 rows=1 loops=1)
+         Index Cond: (mid = 168)
+         Buffers: shared hit=3
+ Planning Time: 0.048 ms
+ Trigger for constraint coins_mid_fkey on users: time=0.194 calls=1
+ Trigger for constraint danmulikes_mid_fkey on users: time=0.066 calls=1
+ Trigger for constraint danmus_mid_fkey on users: time=0.034 calls=1
+ Trigger for constraint favorites_mid_fkey on users: time=0.096 calls=1
+ Trigger for constraint followings_followee_mid_fkey on users: time=0.756 calls=1
+ Trigger for constraint followings_follower_mid_fkey on users: time=0.094 calls=1
+ Trigger for constraint videos_owner_mid_fkey on users: time=0.030 calls=1
+ Trigger for constraint videos_reviewer_fkey on users: time=0.024 calls=1
+ Trigger for constraint viewers_mid_fkey on users: time=0.102 calls=1
+ Trigger for constraint videolikes_mid_fkey on users: time=0.146 calls=1
+ Trigger users_audit_delete on users: time=0.075 calls=1
+ Trigger derived_coins_delete on coins: time=0.123 calls=1
+ Trigger derived_danmus_delete on danmus: time=0.031 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.097 calls=1
+ Trigger derived_viewers_delete on viewers: time=9.489 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.237 calls=1
+ Execution Time: 11.658 ms
+(23 rows)
+
+ROLLBACK
+== delete account, execution 5 of 5
+BEGIN
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Delete on users  (cost=0.29..8.31 rows=0 width=0) (actual time=0.022..0.022 rows=0 loops=1)
+   Buffers: shared hit=5
+   ->  Index Scan using users_pkey on users  (cost=0.29..8.31 rows=1 width=6) (actual time=0.012..0.013 rows=1 loops=1)
+         Index Cond: (mid = 168)
+         Buffers: shared hit=3
+ Planning Time: 0.037 ms
+ Trigger for constraint coins_mid_fkey on users: time=0.128 calls=1
+ Trigger for constraint danmulikes_mid_fkey on users: time=0.040 calls=1
+ Trigger for constraint danmus_mid_fkey on users: time=0.022 calls=1
+ Trigger for constraint favorites_mid_fkey on users: time=0.075 calls=1
+ Trigger for constraint followings_followee_mid_fkey on users: time=0.753 calls=1
+ Trigger for constraint followings_follower_mid_fkey on users: time=0.118 calls=1
+ Trigger for constraint videos_owner_mid_fkey on users: time=0.044 calls=1
+ Trigger for constraint videos_reviewer_fkey on users: time=0.027 calls=1
+ Trigger for constraint viewers_mid_fkey on users: time=0.143 calls=1
+ Trigger for constraint videolikes_mid_fkey on users: time=0.151 calls=1
+ Trigger users_audit_delete on users: time=0.128 calls=1
+ Trigger derived_coins_delete on coins: time=0.168 calls=1
+ Trigger derived_danmus_delete on danmus: time=0.042 calls=1
+ Trigger derived_favorites_delete on favorites: time=0.141 calls=1
+ Trigger derived_viewers_delete on viewers: time=11.111 calls=1
+ Trigger derived_videolikes_delete on videolikes: time=0.244 calls=1
+ Execution Time: 13.387 ms
+(23 rows)
+
+ROLLBACK
