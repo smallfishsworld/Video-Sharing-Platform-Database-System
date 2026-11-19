@@ -22,7 +22,7 @@ All timings come from one machine: 4 vCPUs, 16 GB of RAM, and PostgreSQL 16 with
 
 ## Starting point
 
-The original implementation passes 5,618 of the 5,622 benchmark cases in each of its three runs (`docs/benchmark/round1/baseline-r*.json`). The benchmark logs and the code at `2e811bd` show why. They also show problems that the benchmark does not check:
+The original implementation passes 5,618 of the 5,622 benchmark cases in each of its runs (round 1: `docs/benchmark/round1/baseline-r*.json`; round 2: `docs/benchmark/round2/plain/c2-B*.json`). The benchmark logs and the code at `2e811bd` show why. They also show problems that the benchmark does not check:
 
 - **The four failures.** Three searches fail because `keywords.split(" ")` turns repeated spaces into empty keywords. `regexp_split_to_array(title, '')` then splits the title into single characters, so every video matches. The keywords are also used as regular expressions. The fourth failure is one view rate that is off in the fourth digit (expected 0.5450836, got 0.5451384): view times are stored as `real` and summed with `sum(real)`. The original reads `Instant.now()`. The build of it that the harness measured adds a constant offset, kept outside this repository, so it starts at the same pinned time as the current code.
 - **Writes are sequences of autocommit statements.** `coinVideo` reads the balance, checks for an earlier donation, inserts the donation and then writes back a balance computed in Java. Two concurrent donations by one user can therefore spend the same coin. `follow` returns `true` even when it unfollows.
@@ -32,7 +32,7 @@ The original implementation passes 5,618 of the 5,622 benchmark cases in each of
   - Similar videos self-join `viewers`.
   - Friend recommendations scan all of `followings` (6.0 M rows).
 - **Connections leak on errors.** `UserServiceImpl`, `DanmuServiceImpl` and `RecommenderServiceImpl` have no `finally` block and no try-with-resources. They close their connection only on the success path, so an exception leaks it. `follow`, for example, rethrows an `SQLException` without closing anything.
-- **Import.** The import uses batched `INSERT`s on four threads into tables whose indexes already exist. No `ANALYZE` follows it, and it takes 57.7 s (median).
+- **Import.** The import uses batched `INSERT`s on four threads into tables whose indexes already exist. No `ANALYZE` follows it, and it takes 57.7 s (median of the round-1 runs; 91.7 s in the interleaved round-2 runs).
 
 ## Schema
 
@@ -48,10 +48,10 @@ The original implementation passes 5,618 of the 5,622 benchmark cases in each of
 
 Commit `66edb47`. Each service in `io.sustc.service.impl` is a Spring bean with constructor injection of `NamedParameterJdbcTemplate`, `Authenticator` and `Clock`. There is no ORM and no `@Transactional`. The SQL lives in `static final` text blocks in each service, each with a comment on what it guarantees.
 
-- **One statement per write.** Toggles, coin, review, register, post, delete and follow are each one statement. The building blocks are data-modifying CTEs, `INSERT … ON CONFLICT DO NOTHING RETURNING`, and conditions in the `WHERE` clause of an `UPDATE`.
-  - Atomicity comes from the statement, not from a transaction around several.
-  - Races between "check" and "act" disappear, because the check is part of the act.
-  - Each write is one round trip after authentication.
+- **One call per write.** Coin, review, register, post, edit and delete are each one statement. The toggles (like, collect, follow, danmu like) are a per-user advisory lock and the toggle statement, sent together. The building blocks are data-modifying CTEs, `INSERT … ON CONFLICT DO NOTHING RETURNING`, and conditions in the `WHERE` clause of an `UPDATE`.
+  - Atomicity comes from the statement (or, for a toggle, from the implicit transaction around its two statements), not from a transaction the caller opens.
+  - Inside one statement the check is part of the act, which closes the check-then-act races of coin donation, review and insert-if-absent. It does not make a toggle safe: under READ COMMITTED a statement sees a snapshot taken when it starts, so two concurrent toggles of one row both decided on the old state and one was lost. A lock taken inside the same statement does not help, because the statement's snapshot is older than the wait. So each toggle first takes `pg_advisory_xact_lock(mid)` of the acting user in a statement of its own; the toggle statement starts after the lock is granted and sees every earlier toggle. pgjdbc sends both statements before one Sync, so they are one round trip and one implicit transaction; advisory locks write no WAL. `updateVideoInfo` reads the review state it replaces from a `FOR UPDATE` CTE, which returns the latest committed version of the row.
+  - Each write is one round trip after authentication (`scripts/writebench`, count mode: see [The write path](#the-write-path)).
   - Coin donation (`VideoServiceImpl.DONATE_COIN`) is shaped like this:
     ```sql
     with target as (select v.bv from videos v
@@ -92,14 +92,14 @@ The pool has `sustc.import.parallelism` threads (default 4), each with one conne
 | constraints | 1,141 ms | 1,196 ms | 1,139 ms |
 | vacuum analyze | 215 ms | 207 ms | 229 ms |
 
-The benchmark step for the import took 8,259 ms (median of the round-1 runs). It times only `DatabaseService.importData`: the empty-table check, the catalog capture and all import phases (the importer's own "Imported … in" figure plus 16–27 ms). The benchmark deserializes the `.ser` files before it starts its clock (`BenchmarkService.java:64-68`), for the baseline and this version alike.
+The benchmark step for the import took 8,843 ms (median of the interleaved round-2 runs; 8,259 ms in round 1). It times only `DatabaseService.importData`: the empty-table check, the catalog capture and all import phases (the importer's own "Imported … in" figure plus 20–51 ms in the round-2 runs: 8,162 → 8,184, 8,792 → 8,843 and 8,923 → 8,943 ms in `round2/plain/c2-O*.log`). The benchmark deserializes the `.ser` files before it starts its clock (`BenchmarkService.java:64-68`), for the baseline and this version alike.
 
 **Failure handling.**
 - If any phase fails, the importer truncates every imported table and restores whatever schema objects are missing, then throws an `ImportException` that names the phase. The imported tables are left empty with their complete schema. The `users` audit log is not emptied: it keeps the failed attempt's `INSERT` records and the `TRUNCATE` records. A non-empty database is refused with an `IllegalStateException` before anything changes.
 - `BulkImporterTest` injects a foreign-key violation, a duplicate key and a failure during the load, then compares the catalog with a snapshot taken before the import and checks the audit trail. Other tests cover deferrable and `NOT VALID` constraints, a dropped identity column, refused schema objects, and both branches of the co-view computation (`DerivedDataTest`, against brute force).
 - This test found a bug, now fixed. After a failed validation, the foreign keys that had been added `NOT VALID` stayed unvalidated: 8 of them, in the run that exposed it. `restoreMissing` now validates the captured foreign keys that are still marked `NOT VALID` (`DeferredSchemaObjects.NOT_VALIDATED_FOREIGN_KEYS`), except those that were `NOT VALID` before the import, and recreates the triggers even if a validation fails.
 
-Imported row counts: users 37,881; videos 44; followings 5,958,770; viewers 874,856; videolikes 480,154; coins 447,153; favorites 430,622; danmus 322; danmulikes 11,068; video_stats 44; video_coviews 1,892 (`Imported …` line of `optimized-r1`'s log).
+Imported row counts: users 37,881; videos 44; followings 5,958,770; viewers 874,856; videolikes 480,154; coins 447,153; favorites 430,622; danmus 322; danmulikes 11,068; video_stats 44; video_coviews 1,892 (the `Imported …` line of every round-2 log, for example [benchmark/round2/plain/c2-O1.log](benchmark/round2/plain/c2-O1.log)).
 
 ## Derived tables
 
@@ -116,12 +116,14 @@ Commit `95a7e83`. There are two tables:
 **Design choices:**
 
 - **Statement level, with transition tables.** Deleting a user cascades to thousands of rows, and a row-level trigger would run thousands of times. Here each trigger reads `old_rows`/`new_rows` once and applies one set-based change.
-- **One sorted upsert per change.** Counters move by signed deltas in an `INSERT … ON CONFLICT DO UPDATE`, ordered by `bv`. Two triggers that touch the same counters therefore lock them in the same order. Rows of videos that are being deleted are skipped; their counters go with them.
+- **One sorted upsert per change.** Counters move by signed deltas in an `INSERT … ON CONFLICT DO UPDATE`, ordered by `bv`, so within one trigger the counter rows are locked in `bv` order. That order holds per trigger, not per statement: deleting an account cascades to five tables, each cascade fires its own statement trigger, and each trigger takes its own sorted pass over `video_stats`. Two account deletions with crossing interactions can therefore lock the same counters in opposite orders and deadlock; `ConcurrencyTest.crossingAccountDeletionsBothSucceed` produces that deadlock on every run. The services retry a call that loses a deadlock (`support/Writes`, up to 3 attempts; inside a caller's transaction the deadlock aborts the transaction and the caller retries). That is enough for two crossing deletions, not for eight at once (see [The write path](#the-write-path)). Rows of videos that are being deleted are skipped; their counters go with them.
 - **No `CHECK (>= 0)` on the counters.** PostgreSQL checks the row an `INSERT … ON CONFLICT` proposes before it finds the conflict, so a negative delta would fail even though it only ever becomes an update. The tests compare the counters with a full recomputation instead.
 - **Co-views.**
   - When a user's views of a set of videos appear, every pair between those videos and the user's other videos gains one. Pairs within the set gain one too.
   - When the views disappear, the same pairs lose one. Pairs that reach zero are deleted, so `video_coviews` has no zero rows (`CHECK (viewers > 0)`).
   - Updating the `(bv, mid)` key of a view is rejected: a different key is a different viewer.
+  - The pairs are computed from the user's other views, so two transactions adding views for one user at once each missed the other's view and lost a pair. `derived_viewers` therefore first locks the affected `users` rows (`FOR NO KEY UPDATE`, in `mid` order) in a statement of its own; a user's views are maintained one transaction at a time.
+  - **Size and fan-out.** `video_coviews` holds at most N(N−1) rows for N videos; here it is complete, 44 · 43 = 1,892 rows. A new view by a user who has watched k videos changes 2(k−1) rows, and deleting a user who watched k videos changes k(k−1) rows (here the median user has watched 23 videos, 506 rows, and the heaviest 36, 1,260 rows). Both grow with the square of a user's view count. Deleting an account takes 13.8–15.3 µs of server time per co-view row it changes (least squares over 39 accounts, see [The write path](#the-write-path)); a larger catalogue would store unordered pairs or cap the pairs per user.
 - **`TRUNCATE` fires no row-level work**, so `DatabaseService.truncate()` truncates the derived tables together with everything else.
 
 **Cost.** The read paths that use these tables are in [Query plans](#query-plans), and what the triggers cost per write is in [The write path](#the-write-path).
@@ -209,6 +211,20 @@ After (`friend-rec.after.txt`): for each account the user follows, an index-only
 
 The median case (mid 1727180, 43 followings) goes from 330.955 ms to 11.032 ms. On tables that were never analyzed, the original plan took 608.395 ms and 662.909 ms for the two cases (`friend-rec.before-nostats.txt`); see [the friend step](#planner-statistics-and-the-unstable-friend-step).
 
+### Hotspots and danmu display
+
+These two steps are cheap reads (56 and 382 calls) that the benchmark times on their first pass, and they are the only reads that are slower than in the original (14 → 19 ms and 72 → 80 ms by the medians). WriteBench's reads mode replays both steps' cases in a fresh JVM right after the import, five passes in a row, each pass on a parallel stream as the benchmark runs it (3 runs per version, alternating; [benchmark/round2/writebench/summary.md](benchmark/round2/writebench/summary.md)):
+
+| Pass | Hotspots (56 cases), original | this version | Danmu display (382 cases), original | this version |
+|---:|---:|---:|---:|---:|
+| 1 | 36.2 [33.2–38.5] | 30.3 [24.7–31.5] | 71.6 [62.2–105.7] | 114.6 [107.1–123.6] |
+| 2 | 13.7 [11.5–15.1] | 11.2 [11.1–13.1] | 50.6 [34.1–55.5] | 74.6 [70.7–79.0] |
+| 3 | 13.9 [10.9–14.2] | 11.6 [11.4–13.8] | 38.3 [34.0–53.9] | 58.3 [48.5–59.6] |
+| 4 | 8.7 [8.2–11.2] | 11.2 [9.6–11.2] | 34.9 [34.7–40.9] | 36.2 [30.3–59.9] |
+| 5 | 8.8 [8.2–12.2] | 12.3 [9.8–12.3] | 29.5 [28.6–38.9] | 34.5 [29.4–41.7] |
+
+Milliseconds per pass, median of the 3 runs [smallest–largest]; every answer was correct in every pass. The cost is in the first passes: from the fourth pass on the two versions are within each other's ranges. Hotspots are not slower here even on the first pass (30.3 against 36.2 ms); in the benchmark the step comes after the import and steps 2–3, which run far longer in the original through the same JDBC path, and whether that warm-up explains its 14 → 19 ms was not measured. Danmu display is slower here for the first three passes (114.6 against 71.6 ms on the first). On the server, a first execution costs little more than later ones: in a fresh `psql` session the hotspot query took 0.181 ms to plan and 0.176 ms to run the first time and 0.061–0.080 + 0.039–0.069 ms the next two times, the display query 0.143 + 0.062 ms and then 0.071–0.104 + 0.037–0.041 ms ([explain/first-call.after.txt](explain/first-call.after.txt), `docs/explain/first-call.sql`, EXPLAIN (ANALYZE, TIMING OFF) on the video with the most danmus). If each pooled connection pays what that fresh session paid, first executions add up to 10 × 0.26 ms to a hotspot pass and 10 × 0.09 ms to a display pass (the pool has at most 10 connections: Hikari's default, which neither the runner nor WriteBench changes). Where the rest of the 43 ms of the first display pass goes was not measured; JIT compilation of the new code path is a candidate.
+
 ### Search
 
 The keywords "周杰伦 MV" are searched by a regular user. Before (`search.before.txt`), the original joins every view of every matching video to count views (51,157 joined rows for 2 matches), and splits titles with the keyword as a regular expression:
@@ -231,48 +247,59 @@ After (`search.after.txt`), relevance from `count_occurrences` over the 44 visib
 
 ## The write path
 
-Eleven write steps are slower in the benchmark than in the baseline, by 11 to 309 ms per step. For example, like goes from 266 to 575 ms over 686 calls, and delete video from 287 to 529 ms over 55. There are two measurements of where the time goes.
+The benchmark's 11 write steps take 2,846 ms in the original and 3,353 ms in this version (sums of the step medians of the plain runs). Danmu send (+165 ms), like (+95), collect (+82) and delete video (+141) make up most of the difference; delete account is 45 ms faster, and the other six together are 69 ms slower. Round 1 explained the difference with the timing after the import. Round 2 measured that explanation first, then the work per call.
 
-**One write, with EXPLAIN** (`explain/write-path.after.txt`, rolled back):
+**The timing after the import** ([benchmark/round2/plain/report.txt](benchmark/round2/plain/report.txt), [settle/report.txt](benchmark/round2/settle/report.txt); `scripts/bench_report.py`):
 
-| Write | Total | Inside it |
-|---|---:|---|
-| like toggle (insert) | 1.348 ms | `derived_videolikes_delete` 0.564 ms, `derived_videolikes_insert` 0.234 ms, foreign-key checks 0.124 + 0.064 ms |
-| coin donation | 0.704 ms | `users_audit_update` 0.313 ms, `derived_coins_insert` 0.271 ms |
-| delete a video with 27,136 views | 40.955 ms | cascades to viewers 14.821, videolikes 5.719, favorites 5.446, coins 5.129 ms; `derived_viewers_delete` 3.412 ms |
+- Writeback is not the cause. At the start of step 10 the kernel's dirty memory (`Dirty` in `/proc/meminfo`) is 1.1–2.0 MB in this version's runs and 63–90 MB in the original's.
+- A checkpoint is in progress during the write steps of every run of both versions. WAL-triggered checkpoints follow each other through both imports; the last one started 2–3 s before step 10 here and 24–29 s before it in the original.
+- The settle variant runs a `CHECKPOINT` after the import and waits until dirty memory is below 64 MB. There the write steps took 3,189 ms here and 2,892 ms in the original, against 3,353 and 2,846 ms in the plain runs. The per-run sums overlap (this version: 3,194–3,507 ms plain, 3,041–3,267 ms settle), so the checkpoint costs this version about 5 %, which three runs per variant cannot separate from noise, and the original nothing measurable. Most of those 5 % are in danmu send (369 → 291 ms) and delete video (591 → 526 ms).
+- Full-page images are written in both variants and by both versions: the first change of a page after a checkpoint has started copies the page into the WAL, whether or not the checkpoint has finished. The write steps write 112,797 kB of WAL in the original and 121,260 kB here (medians), 79,129 and 86,079 kB of it page images; per step, coin, like, collect and the two deletes are within 25 % of each other.
+- The exception is danmu send: 2,307 kB instead of 112 kB, 2,052 kB of it page images. The foreign key `danmus.mid → users` checks the sender with a `FOR KEY SHARE` lock on its `users` row; the lock is a `Heap/LOCK` WAL record and, for the first lock on a page after the checkpoint, comes with an image of that page. Measured on its own ([experiments/fk-lock-wal.txt](experiments/fk-lock-wal.txt), `docs/experiments/fk-lock-wal.sh`, `pg_waldump --stats=record`): 200 danmus from 200 different users, inserted right after a `CHECKPOINT` in a transaction that is rolled back, wrote 1,514,237 bytes of WAL, 1,418,380 bytes of it page images attached to the 202 `Heap/LOCK` records; the same 200 danmus inserted again right afterwards wrote 77,487 bytes, with the same 202 lock records and no page images. Follow (297 → 619 kB) has two such foreign keys into `users`; that the cause is the same there was not measured.
 
-The toggle is one statement with a `DELETE` and an `INSERT` CTE, so both statement-level triggers fire, even the one whose transition table is empty. In this one-off session the times also include the first execution of each PL/pgSQL function. The pgbench numbers below are the steady state.
+**The work per call.** WriteBench ([benchmark/round2/writebench/summary.md](benchmark/round2/writebench/summary.md), `scripts/writebench/tables.py`) runs the benchmark's write operations through the service layer of either jar, on the benchmark data as that jar imports it, after a `CHECKPOINT` and 300 warm-up calls: 600 calls per operation (8 deletions of imported videos), 5 runs per version and client count, alternating, each under the bench lock. Medians of the per-run p50 (ms), original → this version, and the statements and round trips per call from its count mode:
 
-**Repeated writes with pgbench** (`experiments/write-latency.txt`, `scripts/write_latency.sh`). Each line is 1,000 transactions on one client, using authentication and the toggle as the service runs them:
+| Operation | 1 client | 8 clients | Statements / round trips per call |
+|---|---:|---:|---:|
+| coin | 1.32 → 0.92 | 2.13 → 2.21 | 7 / 7 → 2 / 2 |
+| like video | 0.71 → 0.84 | 1.35 → 2.09 | 5 / 5 → 3 / 2 |
+| collect | 0.73 → 0.84 | 1.31 → 2.04 | 5 / 5 → 3 / 2 |
+| danmu send | 0.76 → 0.83 | 1.71 → 1.94 | 5.05 / 5.05 → 2 / 2 |
+| danmu like | 0.76 → 0.60 | 1.41 → 1.43 | 5 / 5 → 3 / 2 |
+| post video | 0.55 → 0.76 | 1.16 → 1.64 | 4 / 4 → 2 / 2 |
+| register | 0.45 → 0.45 | 0.97 → 0.82 | 2 / 2 → 1 / 1 |
+| update video | 0.56 → 0.97 | 1.10 → 1.09 | 4 / 4 → 2 / 2 |
+| review | 0.43 → 0.44 | 0.94 → 0.95 | 3 / 3 → 2 / 2 |
+| delete video, no views | 1.15 → 1.10 | 2.47 → 1.83 | 9 / 9 → 2 / 2 |
+| delete video, ≈ 20,000 views | 27.45 → 49.53 | 121 → 12,202 | 9 / 9 → 2 / 2 |
+| delete account | 5.38 → 6.57 | 24.80 → 18,025 | 13 / 13 → 2 / 2 |
+| follow | 0.73 → 0.71 | 1.17 → 1.51 | 4 / 4 → 3 / 2 |
 
-| likeVideo | Latency |
-|---|---:|
-| right after a fresh import (Dirty: 142,768 kB) | 1.301 ms |
-| 120 s later (Dirty: 316 kB) | 0.783 ms |
-| without the derived-table triggers | 0.687 ms |
-| … and without the foreign keys | 0.803 ms |
-| with both again | 0.877 ms |
-| original statement sequence vs current, alternating rounds | 1.235 / 1.057 / 0.941 vs 0.882 / 0.904 / 0.806 ms |
+8 clients: in this version's runs 4–6 of the 8 deletions of imported videos and 79–83 of the 100 account deletions failed with `deadlock detected` after 3 attempts, none in the original's; account deletions on 8 clients are runs of their own (3 per version, 100 calls each). This version's toggles send the lock statement and the toggle in one round trip.
 
-**What the measurements show:**
-- At steady state, a write here is faster than the original's five statements.
-- The triggers cost about 0.1–0.2 ms.
-- The foreign keys cost nothing that this measurement can separate from noise. The run without them was not faster.
-- What does cost time is timing. The benchmark starts its write steps a few seconds after an import that now ends about 50 s sooner. At that point the import's dirty pages are still being written back, and a checkpoint is running. During a checkpoint, the first change to each page writes a full-page image to the WAL.
+- By the medians, coin donation (1.32 → 0.92 ms) and danmu like (0.76 → 0.60 ms) are faster per call at steady state; register, review, deleting a video without views and follow cost the same; like, collect and danmu send are 0.07–0.13 ms slower, post video 0.21 ms and update video 0.41 ms.
+- The deletes that cascade are slower: deleting an imported video (about 20,000 views) takes 49.53 ms instead of 27.45 ms, deleting an account 6.57 ms instead of 5.38 ms. On the server, by EXPLAIN ANALYZE in rolled-back transactions on the data as this version imports it ([explain/delete-costs.after.txt](explain/delete-costs.after.txt), `docs/explain/delete-costs.sql`, trigger times summed per execution by `docs/explain/trigger-times.awk`; executions 2–5 of 5 in one session): deleting a video with 18,179 views, 10,429 likes, 10,129 coins and 10,064 favorites takes 28.9–30.7 ms, 23.9–25.9 ms of it in the foreign-key cascades and 4.2–4.5 ms in the derived-table trigger functions (the session's first execution: 38.7, 29.6 and 8.5 ms). Collecting the deleted rows into the triggers' transition tables happens inside the cascades and was not separated. Deleting an account with 23 views and 177 follow rows takes 11.7–15.1 ms, 10.0–13.2 ms of it in the derived-table triggers and 9.5–12.4 ms of that in the one on `viewers`, which updates the view counters and the 506 (23 × 22) co-view rows of those views; the cascades take 1.3–1.7 ms. Timed without EXPLAIN over 39 accounts that own no video (every 1,000th by mid, and that one; [explain/delete-account-sample.after.txt](explain/delete-account-sample.after.txt)), the server-side delete takes a median of 10.7 ms in a first pass and 10.0 ms in a second (6.1–18.3 and 4.9–17.0 ms), and it grows with the co-view rows it changes: 13.8 and 15.3 µs per row by least squares, correlation 0.79 and 0.92. WriteBench's p50 (6.57 ms, commit included) is lower than that median. Its account deletions run after its 8 deletions of imported videos, which take those videos' views with them, so its accounts have fewer views left; how many fewer, and whether that explains the whole difference, was not measured.
+- The settle runs of the benchmark show the same split: coin, register, update video, review and delete account are not slower than the original there, while danmu send (+90 ms), like (+146), collect (+64), post video (+8), delete video (+80) and follow (+8) are.
+- Coin is the exception between the two measurements: one statement instead of seven, 30 % faster per call in WriteBench, but not faster in the benchmark (547 → 567 ms plain, 556 → 515 ms settle, ranges overlapping). Both versions write about 7 MB of page images in that step; why the per-call gain does not show there was not measured.
 
-**The deletes also do more work.** They now remove what the original left behind. The baseline's delete steps were measured on a schema without foreign keys.
+**Triggers and foreign keys of one like** (pgbench, `scripts/write_latency.sh`, [experiments/write-latency.txt](experiments/write-latency.txt), one client, 1,000 transactions per measurement): with the derived-table triggers and the foreign keys 1.019 ms [0.935–1.064], without the triggers 0.887 ms [0.839–0.924], without the triggers and the foreign keys 0.794 ms [0.657–0.852] (median [range] of 5 alternating rounds). Without the triggers a like takes about 0.13 ms less, and the ranges with and without them do not overlap. Without the foreign keys as well it takes another 0.09 ms less, but those two ranges overlap (0.839–0.924 and 0.657–0.852 ms), so that difference is not separated from the noise. Right after the import and 120 s later the like took 0.957 and 0.994 ms (dirty memory 932 kB and 140 kB), so round 1's 1.30 → 0.78 ms, measured with 143 MB of dirty data after the import, did not recur. Part 3 of the script (the original's statement sequence in pgbench) needs the schema `original` and was skipped; WriteBench measures the original's own code instead.
 
-**Reads are not affected.** `displayDanmu` takes 0.126 ms right after the import and 0.141 ms later.
+**One coin donation, with EXPLAIN** ([explain/coin-donation.after.txt](explain/coin-donation.after.txt), `docs/explain/coin-donation.sql`, rolled back): user 51, who had 91 coins and had not donated to BV1PK4y1b7dt, donates a coin to it five times in one session, each time rolled back. The donation happens each time: the update of `users` returns its row (rows=1), the insert's input has one row, and the two foreign-key checks on `coins`, which fire once per inserted row, run once each (the `Insert on coins` node itself shows rows=0 because the statement returns nothing). The session's first execution takes 2.670 ms (planning 0.296 ms), most of it in the audit trigger (1.145 ms) and the counter trigger (0.750 ms), which run for the first time in the session there. The four later ones take 0.317–0.498 ms (planning 0.133–0.163 ms), of which the counter trigger takes 0.089–0.135 ms, the audit trigger 0.049–0.108 ms and the two foreign-key checks 0.047–0.075 ms together. Round 1's EXPLAIN of a coin donation measured one that inserted nothing; these numbers replace it.
 
-## Planner statistics and the unstable friend step
+**Under concurrency** (WriteBench, 8 clients): like, collect, post video and follow reach 24–35 % less throughput than in the original; danmu send 16 % more, register 24 % more and deleting a video without views 58 % more; coin, danmu like, update video and review are within each other's run ranges. Why was not measured; a candidate for like and collect is the video's counter row in `video_stats`, which every like of that video updates and keeps locked until commit. Deletions that cascade deadlock with each other: in each of the 5 runs, 4–6 of the 8 deletions of imported videos failed with `deadlock detected` after 3 attempts (15–20 deadlocks per run), and in each of 3 runs of 100 account deletions on 8 clients 79–83 failed (310–316 deadlocks per run, p50 18 s); the original completed all of them (p50 121 ms and 24.8 ms). The retry in `support/Writes` (up to 3 attempts) is enough for two crossing deletions (45 trials of two crossing account deletions 0–8 ms apart: 4 failed with `deadlock detected` on the round-1 code and none on this version, where 2 deadlocks were detected and retried) but not for eight; see [Open questions](#open-questions).
 
-The baseline's friend step took 1,932, 8,910 and 9,008 ms in its three runs. That is the widest range in the table, and the reason the baseline median is 8.9 s.
-- The original importer never runs `ANALYZE`, so whether `followings` has statistics when step 8 starts depends on whether autovacuum has analyzed it by then.
-- Without statistics, the original plans take 608 and 663 ms instead of 331 and 441 ms (`friend-rec.before-nostats.txt` against `friend-rec.before.txt`).
-- That supports the explanation but does not prove it. Per query, the slowdown is 1.5–1.8×, while the step slowed by 4.6×. The step runs its 142 calls up to four at a time, and the parallel plans compete for the same cores, which could amplify the slowdown; that was not measured.
-- Compared with the fast baseline run (1,932 ms), the friend step is 3.5× faster. Compared with the median, it is 16×.
+## Planner statistics and the friend step
 
-The current importer ends with `VACUUM (ANALYZE)`. In the three final runs the step took 523–628 ms.
+In round 1 the baseline's friend step took 1,932, 8,910 and 9,008 ms. The explanation offered then was that the original importer never runs `ANALYZE`, so the plan depended on whether autovacuum had analyzed `followings` by step 8. Round 2 tested it ([benchmark/round2](benchmark/round2), `scripts/bench_report.py`; `bench_instrumented.py` records `pg_stats` and `pg_stat_user_tables` for `followings` and the plan of the step's median query, user 18398, when step 7 ends):
+
+| Original implementation | Step 8 | Statistics of `followings` at step 8 | Plan |
+|---|---:|---|---|
+| as it is (plain runs `c2-B1..3`) | 11,970 / 12,768 / 12,928 ms | from autovacuum during the import: one or two autoanalyze runs, 0.9–2.5 M rows changed since; `n_distinct(mid1)` 9,768–13,051 | hash anti-join over a hash join |
+| `VACUUM ANALYZE` right after the import (`c4-B1..3`) | 11,671 / 11,440 / 12,183 ms | analyzed in the pause; `n_distinct(mid1)` 14,590–14,673 | the same |
+
+- With fresh statistics the original is not faster, and the plan is the same. So missing statistics do not explain the original's friend step in round 2, and the 1,932 ms run of round 1 remains unexplained.
+- Round 1's `EXPLAIN` without statistics (`friend-rec.before-nostats.txt`, 608 and 663 ms against 331 and 441 ms) is a per-query difference of 1.5–1.8× on another day; it does not carry over to the step.
+- This version's importer ends with `VACUUM (ANALYZE)` (`n_mod_since_analyze` is 0 at step 8). Its friend step took 519, 686 and 708 ms, 18.6× faster than the original's median; the covering index `followings (followee_mid, follower_mid)` and the rewritten query are what changed.
 
 ## Development checkpoints
 
@@ -293,7 +320,7 @@ These are single benchmark runs made with the same harness during development, e
 
 What each checkpoint changed:
 
-- **m1 core.** The rewritten services, the new schema and the `COPY` importer with `ANALYZE`. All cases pass, the import is 5× faster, and the friend step no longer depends on whether autovacuum has analyzed `followings`. Similar videos and the recommendations still aggregate from scratch.
+- **m1 core.** The rewritten services, the new schema and the `COPY` importer with `ANALYZE`. All cases pass, the import is 5× faster, and the friend step takes 708 ms. Similar videos and the recommendations still aggregate from scratch.
 - **m2 derived.** The derived tables and their triggers. Similar videos, general and user recommendations, and search drop to tens of milliseconds. Deletes get slower, because they now maintain counters.
 - **m3 upsert.** The counter triggers became one sorted upsert each, and the counter `CHECK`s were dropped.
 - **m4 friends.** The friend query applies the anti-join after the aggregation, which was the cheapest of the variants compared over all 133 valid calls. The viewers delete trigger became a single pass.
@@ -304,7 +331,7 @@ Command: `cd /home/user/work/bench6 && python3 -I compare.py m1=m1_core.json m2=
 
 ## Tests
 
-There are 142 tests (JUnit 5). `./gradlew build` runs them, plus `BulkImporterTest` a second time with the JVM in the benchmark's time zone (Asia/Shanghai, task `importerTestInBenchmarkZone`): 151 test executions. The CI workflow (`.github/workflows/ci.yml`) runs the same build on JDK 17 and 21, but it has not run on GitHub, because nothing has been pushed; see below for the local runs of its commands.
+There are 142 tests (JUnit 5, counted as JUnit reports them: each argument set of a parameterized test is one test); 108 of them are integration tests against PostgreSQL 16 in Testcontainers, the other 34 are unit tests. `./gradlew build` runs them, plus `BulkImporterTest` a second time with the JVM in the benchmark's time zone (Asia/Shanghai, task `importerTestInBenchmarkZone`): 151 test executions. The CI workflow (`.github/workflows/ci.yml`) runs the same build on JDK 17 and 21, but it has not run on GitHub, because nothing has been pushed. Its build command was run locally in a fresh clone (`git clone --no-local`, `core.fileMode` true, `gradlew` and the scripts committed as mode 100755): it passes on JDK 21 and, in an `eclipse-temurin:17-jdk` container, on JDK 17 ([experiments/ci-proof.txt](experiments/ci-proof.txt), [ci-proof-jdk21.log](experiments/ci-proof-jdk21.log), [ci-proof-jdk17.log](experiments/ci-proof-jdk17.log); `--offline --max-workers=2` added because the machine is shared, and `--no-build-cache` so that every task runs although `gradle.properties` enables Gradle's local build cache).
 
 **Setup.**
 - Integration tests extend `IntegrationTest`. It starts one `postgres:16-alpine` container for the whole run (Testcontainers 1.21.4) and wires it in with `@DynamicPropertySource`.
@@ -328,21 +355,24 @@ There are 142 tests (JUnit 5). `./gradlew build` runs them, plus `BulkImporterTe
 | `WritesTest` | 5 | deadlock retries, SQLSTATE mapping |
 | `ServiceHelpersTest`, `ClockConfigTest`, `PageTest` | 26 | keyword splitting, birthdays, sex labels, the pinned clock, paging arithmetic |
 
-**Do the concurrency tests test anything?** They were run against the code before the fixes (commit `978fe40` with the new tests copied in). There, the gated toggle tests, the edit test, the co-view tests and the 8-thread toggle test fail (8 of 11 in `ConcurrencyTest`; output in the round-2 notes below), and the crossing-deletion test fails with `deadlock detected`. After the fixes all pass.
+**Do the concurrency tests test anything?** `ConcurrencyTest`, `TransactionCompositionTest` and `CollationIndependenceTest` were run against the code before the fixes (commit `978fe40` with the new tests copied in; `TransactionCompositionTest` without its one test of `support/Writes`, which did not exist yet) and against this version ([experiments/concurrency-tests-old-vs-new.txt](experiments/concurrency-tests-old-vs-new.txt)). On the old code 15 of the 19 fail: 10 of the 11 in `ConcurrencyTest` (all but `deletingAVideoAndOneOfItsLikersAtOnceBothSucceed`, which passes there too), 4 of the 5 in `CollationIndependenceTest` (all but `theDatabaseReallySortsCaseFirstByLanguage`, which checks the test database itself) and 1 of the 3 in `TransactionCompositionTest` (`aDuplicateTitleInAnUpdateLeavesTheTransactionUsable`; the post and donation cases already passed). On this version all 20 pass.
 
 ## Tried and rejected
 
-- **Dropping the foreign keys for write speed.** pgbench shows no gain (0.803 ms without them against 0.687 ms before removing them). Without the foreign keys, the cascades would have to be written by hand again.
+- **Dropping the foreign keys for write speed.** In pgbench a like without the derived-table triggers took 0.887 ms with the foreign keys and 0.794 ms without them (medians of 5 alternating rounds whose ranges overlap; [experiments/write-latency.txt](experiments/write-latency.txt)), a difference the measurement cannot separate from noise. Without the foreign keys, the cascades would have to be written by hand again.
 - **`CHECK (>= 0)` on the counters.** These are incompatible with signed-delta upserts; see [Derived tables](#derived-tables).
 - **Rebuilding `video_coviews` in SQL after the load.** That needs a self-join of all 875 k views on the user. `DerivedData` instead counts the pairs in Java, during the load phase, while the records are in memory.
+- **An early return in the derived-table triggers.** A toggle fires both its insert and its delete trigger, and one of the two has an empty transition table; the deletes run the co-view branch for videos that are being deleted anyway. A variant of `sql/build.sql` that returns early in both cases ([benchmark/round2/b1/build-early-return.sql](benchmark/round2/b1/build-early-return.sql)) was measured with WriteBench against the current triggers: 5 alternating rounds, 1 client, after a checkpoint, 300 warm-up and 600 measured calls per operation. Median p50 per call, current vs early return: sendDanmu 0.976 vs 1.125 ms, coinVideo 1.076 vs 1.078, likeVideo 0.988 vs 1.050, collectVideo 0.962 vs 0.873, deleting a video with views 35.6 vs 33.7, deleteAccount 6.75 vs 6.57 ms; every range of one variant overlaps the other's ([benchmark/round2/b1](benchmark/round2/b1), `scripts/writebench/summarize.py`). No gain that the measurement can separate from noise, so it was not kept.
 - **Not tried: server settings.** Parallel query, JIT and the checkpoint settings stay as the shared server has them for every run.
 
 ## Open questions
 
-- **Two cheap reads are slower in the benchmark.** Hotspots go from 10 to 27 ms over 56 calls, and danmu display from 34 to 77 ms over 382 calls. In the database, display takes 0.13–0.14 ms per call (pgbench), so the extra time is probably per call in the Java layer: named-parameter parsing, array decoding, or statement preparation. That is not proven, and profiling it is the next step.
-- **Writes right after the import.** A checkpoint at the end of the import would remove the post-import penalty measured above. `CHECKPOINT` needs a superuser or `pg_checkpoint` membership, and the `sustc` role has neither.
-- **Authentication is a separate query.** Folding it into each write statement would save one round trip per call, at the cost of more complex SQL.
-- **Triggers with empty transition tables.** These still run their upsert. An early `if not exists (select from new_rows) then return null` would save that work on toggles.
+- **Concurrent cascading deletes.** On 8 clients, deletions of imported videos and of accounts deadlock with each other more often than 3 attempts absorb (see [The write path](#the-write-path)). Two changes would remove those cycles, and neither has been measured: serialize the deletes that change derived rows (a transaction-scoped advisory lock in a key space of its own, taken as their first statement), or lock the affected `video_stats` and `video_coviews` rows in one global order before deleting. Storing each co-view pair once (`bv < other_bv`) would remove the video–video cycle and halve the co-view rows a view changes.
+- **The co-view delete branch.** Deleting an account spends most of its server time in `derived_viewers` (9.5–12.4 of 11.7–15.1 ms for an account with 23 views, see [The write path](#the-write-path)), which locks the affected co-view rows, deletes those that reach zero and updates the rest, in three statements. One sorted decrement could replace them; it needs `CHECK (viewers > 0)` dropped (an upsert checks the proposed row first), a cleanup of zero rows, and counts that are exact. Not tried: this round kept the code of the benchmarked jar.
+- **Writes under concurrency.** On 8 clients like and collect reach about a third less throughput than the original. Whether the counter rows in `video_stats` are the cause, and whether batching the counter updates per transaction would help, is open.
+- **Coin donation in the benchmark.** One statement and faster per call at steady state, but not faster in the benchmark step.
+- **Authentication is a separate query.** Folding it into each write statement would save one round trip per call (every write except register takes two round trips today, the authentication query and the write; WriteBench count mode), at the cost of more complex SQL.
+- **Writes right after the import.** A `CHECKPOINT` at the end of the import would take the checkpoint out of the write steps (about 5 % of them, see above). It needs a superuser or `pg_checkpoint` membership, which the `sustc` role lacks.
 
 ## Interpretations of the specification
 
