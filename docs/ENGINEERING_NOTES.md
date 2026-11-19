@@ -132,7 +132,7 @@ The query plans are produced by `EXPLAIN (ANALYZE, BUFFERS)` on the same data, i
 - "Before" runs the original queries on schema `original`. It is the original `build.sql` with its indexes, holding the rows of the benchmark import, analyzed.
 - "After" runs the current queries on `public`, freshly imported.
 
-Before reading the times, note that `EXPLAIN ANALYZE` times every plan node, which adds cost to every row a plan produces. On a 638 k-row join and aggregation here it reported 200 ms, against 130 ms with `TIMING OFF` and 123 ms run plainly ([`experiments/explain-overhead.txt`](experiments/explain-overhead.txt); `pg_test_timing`: 27 ns per clock read). The row-heavy "before" plans therefore look slower here than they run, and the ratios between single queries overstate the gain. The benchmark table in the README is the end-to-end measure.
+Before reading the times, note that `EXPLAIN ANALYZE` times every plan node, which adds cost to every row a plan produces. On a 638 k-row join and aggregation here it reported 200–205 ms, against 129–133 ms with `TIMING OFF` and 122–124 ms run plainly (three runs each) ([`experiments/explain-overhead.txt`](experiments/explain-overhead.txt); `pg_test_timing`: 27 ns per clock read). The row-heavy "before" plans therefore look slower here than they run, and the ratios between single queries overstate the gain. The benchmark table in the README is the end-to-end measure.
 
 ### Similar videos
 

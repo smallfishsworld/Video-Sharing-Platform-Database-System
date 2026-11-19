@@ -187,7 +187,7 @@ erDiagram
 
 ### 关键改动
 
-单条查询的时间来自同一份数据上的 `EXPLAIN (ANALYZE, BUFFERS)`（[docs/explain](docs/explain)，可用 `scripts/explain_plans.sh` 重新生成）。它为每个计划节点计时，计划产生的每一行都会带来额外开销：在本机对 63.8 万行做连接和聚合时，它报告 200 ms，而 `TIMING OFF` 时为 130 ms，直接运行为 123 ms（[docs/experiments/explain-overhead.txt](docs/experiments/explain-overhead.txt)）。因此下面这些处理大量行的原始计划，在列表中的时间比实际运行要慢，单条查询之间的倍数也夸大了收益；端到端的数字见上面的表格。
+单条查询的时间来自同一份数据上的 `EXPLAIN (ANALYZE, BUFFERS)`（[docs/explain](docs/explain)，可用 `scripts/explain_plans.sh` 重新生成）。它为每个计划节点计时，计划产生的每一行都会带来额外开销：在本机对 63.8 万行做连接和聚合时，它报告 200–205 ms，而 `TIMING OFF` 时为 129–133 ms，直接运行为 122–124 ms（各运行三次）（[docs/experiments/explain-overhead.txt](docs/experiments/explain-overhead.txt)）。因此下面这些处理大量行的原始计划，在列表中的时间比实际运行要慢，单条查询之间的倍数也夸大了收益；端到端的数字见上面的表格。
 
 | 改动 | 效果 |
 |---|---|
