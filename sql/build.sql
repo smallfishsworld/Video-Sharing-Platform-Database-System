@@ -5,8 +5,12 @@
 --     primary-key lookup. The reverse direction (everything a user did) has a covering
 --     (user, object) index, so both directions can be answered by index-only scans.
 --   * Foreign keys cascade on delete: deleting a user or a video removes everything that
---     references it inside the same statement, so no orphan rows can be left behind. The one
---     exception is video_coviews, whose rows a trigger deletes (see there).
+--     references it inside the same statement. The one exception is video_coviews, which has no
+--     foreign keys: derived_videos deletes a deleted video's rows, and derived_viewers locks the
+--     videos it pairs before it adds pairs, so a concurrent deletion cannot leave pairs behind
+--     (see there).
+--   * The derived-table triggers assume READ COMMITTED, PostgreSQL's default, under which every
+--     statement takes a new snapshot (see derived_viewers, which refuses REPEATABLE READ).
 --   * Real-valued data (durations, view times, danmu times) is double precision so that sums and
 --     averages are not accumulated in float4.
 --   * The bulk importer (BulkImporter) drops the indexes, foreign keys and derived_* triggers
@@ -159,7 +163,9 @@ create table video_stats (
 -- The rows reference videos without foreign keys: deleting a video deletes its rows in both
 -- directions through derived_videos, in one pass in key order. Two cascades (one per direction)
 -- would delete them in two passes, and two videos deleted at once would take the rows between
--- them in crossing orders: (a, b) then (b, a) for one, (b, a) then (a, b) for the other.
+-- them in crossing orders: (a, b) then (b, a) for one, (b, a) then (a, b) for the other. Without
+-- foreign keys, nothing stops a pair from being inserted for a video that a concurrent
+-- transaction is deleting; derived_viewers prevents that by locking the videos it pairs.
 create table video_coviews (
     bv       varchar not null,
     other_bv varchar not null,
@@ -313,6 +319,25 @@ create trigger derived_danmus_delete
 -- statement that follows takes a new snapshot that includes every committed change of those
 -- users' views. The users rows are locked before any counter row, the same order as a coin
 -- donation (users, then video_stats).
+--
+-- That relies on READ COMMITTED. Under REPEATABLE READ every statement reuses the transaction's
+-- snapshot, so the pair statement would still miss the views of a transaction that it waited for,
+-- and pairs would be lost without any error; the trigger refuses to run at that level. (Under
+-- SERIALIZABLE the same conflict is expected to end in a serialization failure, which the
+-- services retry; no test covers that level.)
+--
+-- New views also lock the other videos of their viewers (FOR KEY SHARE, in bv order) before the
+-- pairs are computed. video_coviews has no foreign keys, and a video that an uncommitted
+-- transaction is deleting is still visible to the pair statement: its insert would wait for the
+-- deletion's removal of the pair and then insert the pair again, for a video that no longer
+-- exists. The lock waits for the deletion instead, and the pair statement's new snapshot no
+-- longer sees the deleted video's views. The lock comes after the users rows and before every
+-- counter row, so a deletion that holds a counter row never waits for a view insert that waits
+-- for the deletion. One cycle remains: a view of video A, whose foreign-key check holds A, while
+-- the account of A's owner is being deleted, by a viewer who also viewed another video of that
+-- owner. The deletion waits for A and the view for the other video; PostgreSQL aborts one of
+-- them as a deadlock. No service inserts views, and the services retry a deadlocked call outside
+-- a caller's transaction.
 create function derived_viewers() returns trigger
     language plpgsql as
 $$
@@ -327,8 +352,10 @@ begin
     if tg_op = 'UPDATE' then
         -- Only view_time may change: a new (bv, mid) is a different viewer.
         if exists (select bv, mid from old_rows except select bv, mid from new_rows) then
+            -- Not feature_not_supported (0A000): HikariCP takes that SQLSTATE for a broken
+            -- connection and closes it, so a caller's rollback would fail.
             raise exception 'the (bv, mid) key of a viewers row cannot be updated; delete and insert it instead'
-                using errcode = 'feature_not_supported';
+                using errcode = 'triggered_action_exception';
         end if;
         insert into video_stats as s (bv, view_time_sum)
         select bv, sum(view_time)
@@ -339,11 +366,21 @@ begin
         return null;
     end if;
 
+    if current_setting('transaction_isolation') = 'repeatable read' then
+        raise exception 'derived_viewers needs READ COMMITTED: under REPEATABLE READ concurrent view changes of one user would lose co-view pairs'
+            using errcode = 'invalid_transaction_state';
+    end if;
+
     if tg_op = 'INSERT' then
         perform from users u
         where u.mid in (select distinct mid from new_rows)
         order by u.mid
         for no key update of u;
+
+        perform from videos v
+        where v.bv in (select w.bv from new_rows n join viewers w on w.mid = n.mid)
+        order by v.bv
+        for key share of v;
 
         insert into video_stats as s (bv, viewers, view_time_sum)
         select bv, count(*), sum(view_time) from new_rows group by bv order by bv
@@ -415,9 +452,12 @@ begin
         join unnest(pair_bv, pair_other) as p (bv, other_bv) on c.bv = p.bv and c.other_bv = p.other_bv
         order by c.bv, c.other_bv
         for update of c;
+        -- A pair whose count drops to exactly zero goes. A count below the loss would mean the
+        -- table had drifted from viewers; the update then fails CHECK (viewers > 0) instead of
+        -- hiding the drift.
         delete from video_coviews c
         using unnest(pair_bv, pair_other, pair_lost) as p (bv, other_bv, lost)
-        where c.bv = p.bv and c.other_bv = p.other_bv and c.viewers <= p.lost;
+        where c.bv = p.bv and c.other_bv = p.other_bv and c.viewers = p.lost;
         update video_coviews c
         set viewers = c.viewers - p.lost
         from unnest(pair_bv, pair_other, pair_lost) as p (bv, other_bv, lost)

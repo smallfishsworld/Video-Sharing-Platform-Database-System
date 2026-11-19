@@ -21,6 +21,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -282,6 +283,54 @@ class DerivedDataConsistencyTest extends IntegrationTest {
         assertThat(jdbc.queryForObject("select view_time_sum from video_stats where bv = ?", Double.class, a))
                 .isEqualTo(11);
         DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
+     * Co-view maintenance needs a new snapshot per statement, so derived_viewers refuses to change
+     * views under REPEATABLE READ; READ COMMITTED and SERIALIZABLE are accepted.
+     */
+    @Test
+    void viewChangesAreRefusedUnderRepeatableRead() {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String bv = fx.video(owner, "v");
+        TransactionTemplate repeatableRead = new TransactionTemplate(transactions.getTransactionManager());
+        repeatableRead.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        TransactionTemplate serializable = new TransactionTemplate(transactions.getTransactionManager());
+        serializable.setIsolationLevel(TransactionDefinition.ISOLATION_SERIALIZABLE);
+
+        assertThatThrownBy(() -> repeatableRead.executeWithoutResult(
+                        status -> jdbc.update("insert into viewers (bv, mid, view_time) values (?, ?, 1)", bv, viewer)))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("READ COMMITTED");
+        assertThat(count("select count(*) from viewers")).isZero();
+        serializable.executeWithoutResult(
+                status -> jdbc.update("insert into viewers (bv, mid, view_time) values (?, ?, 1)", bv, viewer));
+        assertThat(count("select viewers from video_stats where bv = ?", bv)).isEqualTo(1);
+        DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
+     * A co-view count that has drifted below what a deletion removes is an error, not a row that
+     * silently disappears. The drift is made by hand: both viewers of a pair are deleted at once
+     * after the count was set from 2 to 1.
+     */
+    @Test
+    void aCoviewCountBelowItsLossFailsTheDeletion() {
+        long owner = fx.user("owner");
+        String a = fx.video(owner, "a");
+        String b = fx.video(owner, "b");
+        for (String name : List.of("v1", "v2")) {
+            long viewer = fx.user(name);
+            fx.watch(a, viewer, 1);
+            fx.watch(b, viewer, 1);
+        }
+        jdbc.update("update video_coviews set viewers = 1");
+
+        assertThatThrownBy(() -> jdbc.update("delete from viewers where bv = ?", a))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("video_coviews_viewers_check");
+        assertThat(count("select count(*) from viewers where bv = ?", a)).isEqualTo(2);
     }
 
     @Test

@@ -414,6 +414,50 @@ class ConcurrencyTest extends IntegrationTest {
     }
 
     /**
+     * A view inserted while a video that its viewer watched is being deleted. A test trigger
+     * holds the deletion for a second after its co-view rows are gone. The new view's pair
+     * statement would still see the viewer's view of the deleted video (that deletion has not
+     * committed) and add the pair of the new and the deleted video again, a row that nothing
+     * deletes any more. derived_viewers locks the viewer's other videos first, so the insert
+     * waits for the deletion and pairs only with the videos that remain.
+     */
+    @Test
+    void aViewInsertedDuringAVideoDeletionAddsNoPairOfTheDeletedVideo() throws Exception {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String doomed = fx.video(owner, "doomed");
+        String kept = fx.video(owner, "kept");
+        String watched = fx.video(owner, "watched");
+        fx.watch(doomed, viewer, 1);
+        fx.watch(kept, viewer, 1);
+        jdbc.execute(
+                """
+                create function test_slow_statement() returns trigger language plpgsql as
+                $$ begin perform pg_sleep(1); return null; end $$
+                """);
+        // Statement triggers fire in name order, so this one runs after derived_videos_delete.
+        jdbc.execute("create trigger test_slow_statement after delete on videos"
+                + " for each statement execute function test_slow_statement()");
+        List<Integer> results;
+        try {
+            results = concurrently(List.of(() -> videos.deleteVideo(fx.auth(owner), doomed) ? 1 : 0, () -> {
+                awaitSleepingSessions(1);
+                return jdbc.update("insert into viewers (bv, mid, view_time) values (?, ?, 1)", watched, viewer);
+            }));
+        } finally {
+            jdbc.execute("drop trigger test_slow_statement on videos");
+            jdbc.execute("drop function test_slow_statement()");
+        }
+
+        assertThat(results).containsExactly(1, 1);
+        assertThat(count("select count(*) from video_coviews where ? in (bv, other_bv)", doomed))
+                .isZero();
+        assertThat(count("select viewers from video_coviews where bv = ? and other_bv = ?", watched, kept))
+                .isEqualTo(1);
+        DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
      * A deletion that the caller may not make returns false without taking the deletion lock, so it
      * holds up no other deletion; one that the caller may make holds the lock until its
      * transaction ends.
@@ -553,6 +597,19 @@ class ConcurrencyTest extends IntegrationTest {
         } finally {
             jdbc.execute("drop trigger test_slow_delete on " + table);
             jdbc.execute("drop function test_slow_delete()");
+        }
+    }
+
+    /** Waits until {@code sessions} backends of this database are inside pg_sleep. */
+    private void awaitSleepingSessions(int sessions) throws Exception {
+        long deadline = System.nanoTime() + Concurrency.CALL_TIMEOUT.toNanos();
+        while (count(
+                        "select count(*) from pg_stat_activity where wait_event = 'PgSleep' and datname = current_database()")
+                < sessions) {
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("fewer than " + sessions + " sessions reached pg_sleep");
+            }
+            Thread.sleep(10);
         }
     }
 
