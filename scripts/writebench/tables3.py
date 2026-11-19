@@ -131,9 +131,10 @@ if all(dg.values()):
       "active backend, `CPU` when it waits on nothing); per call, the CPU time of those backends and of the "
       "WriteBench JVM (`/proc/<pid>/stat`). The sampling itself costs throughput, so these runs are for "
       "attribution only. Backends per sample: of the pool's 10 connections, 8 are in use; `idle` includes the "
-      "client-side part of each call.\n")
-    P("| operation | version | throughput /s | backend CPU ms/call | JVM CPU ms/call | waiting for WAL flush (LWLock:WALWrite + IO:WALSync) | on CPU | row locks (Lock:transactionid + Lock:tuple) | idle |")
-    P("|---|---|---:|---:|---:|---:|---:|---:|---:|")
+      "client-side part of each call. The machine has 4 vCPUs; the CPU times are those of the processes, so the busy "
+      "vCPUs leave out the sampler and the machine's other processes.\n")
+    P("| operation | version | throughput /s | backend CPU ms/call | JVM CPU ms/call | vCPUs busy ((backend + JVM CPU) × throughput) | waiting for WAL flush (LWLock:WALWrite + IO:WALSync) | on CPU | row locks (Lock:transactionid + Lock:tuple) | idle |")
+    P("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for op in OPS:
         for v, label in (("orig", "original"), ("r2", "round 2")):
             xs = op_results(dg[v], op)
@@ -144,8 +145,9 @@ if all(dg.values()):
             w = s["backends_per_sample"]
             wal = w.get("LWLock:WALWrite", 0) + w.get("IO:WALSync", 0)
             rows = w.get("Lock:transactionid", 0) + w.get("Lock:tuple", 0)
+            busy = (s["backend_cpu_ms_per_call"] + s["jvm_cpu_ms_per_call"]) * x["throughput_per_s"] / 1000
             P(f"| {op} | {label} | {x['throughput_per_s']:,.0f} | {s['backend_cpu_ms_per_call']} | "
-              f"{s['jvm_cpu_ms_per_call']} | {wal:.2f} | {w.get('CPU', 0):.2f} | {rows:.2f} | {w.get('idle', 0):.2f} |")
+              f"{s['jvm_cpu_ms_per_call']} | {busy:.2f} | {wal:.2f} | {w.get('CPU', 0):.2f} | {rows:.2f} | {w.get('idle', 0):.2f} |")
 
 # Count and stress -------------------------------------------------------------------------------------
 cn = runs("count-new")
