@@ -8,7 +8,7 @@ clients), delacct-{orig,new}-c8-r<i>.json (deleteAccount on 8 clients), count-{o
 (statements and round trips), stress-{orig,r1,new}.json and reads-{orig,new}-r<i>.json, and the
 <label>.deadlocks.txt file next to each run (pg_stat_database.deadlocks before and after it).
 Figures over several runs are the median of the per-run figures, with the smallest and largest
-run in brackets. "orig" is the original implementation, "r1" this project at the end of round 1
+run in brackets. "orig" is the 2023 implementation, "r1" this project at the end of round 1
 (commit 978fe40), "new" this version.
 """
 import glob
@@ -30,8 +30,8 @@ holds the run's options, jar sha256, commit and boot, and `<label>.log` its outp
 (`scripts/writebench/WriteBench.java`, run by `scripts/writebench/run.sh`) loads the service classes of one \
 runner jar into a fresh JVM, recreates the `public` schema from that version's SQL, imports the benchmark \
 data through the jar's `DatabaseService` and calls the services as the benchmark does. "Original" is the \
-original implementation, "this version" the jar of this repository's benchmark runs, "round 1" the code at \
-`978fe40` (stress mode only).
+2023 implementation (the course submission on `main`), "this version" the round-2 jar (42004a16) of this repository's \
+benchmark runs, "round 1" the code at `978fe40` (stress mode only).
 
 Every run held `/home/user/work/bench.lock` for its whole duration and released it afterwards; the original \
 and this version alternate. Steady runs: `--settle` (a `CHECKPOINT` after the import), 300 warm-up and 600 \
@@ -142,8 +142,14 @@ if co and cn:
 st = {v: runs(f"stress-{v}.json") for v in ("orig", "r1", "new")}
 if any(st.values()):
     P("\n## Stress\n")
-    P("| variant | coin: trials overspent | coin: trials with a wrong balance | like toggle: trials with a lost update | "
-      "follow toggle: trials with a lost update | crossing account deletions: trials with an error | deadlocks detected | "
+    P("This WriteBench version counted a toggle trial as lost if any call of the trial failed or the final state did "
+      "not match the calls' results, so the toggle columns count trials with a failed call or a count mismatch. The "
+      "original's 45/45 are trials with failed calls (see the failed-calls column; its follow also returns true for an "
+      "unfollow, so the count check does not apply to it). Round 1's 45/45 had no failed call: those trials lost "
+      "updates. Round 4 re-ran stress mode with the two counts separated and the error messages kept: "
+      "`docs/benchmark/round4/writebench/summary.md`.\n")
+    P("| variant | coin: trials overspent | coin: trials with a wrong balance | like toggle: trials with a failed call or a count mismatch | "
+      "follow toggle: trials with a failed call or a count mismatch | crossing account deletions: trials with an error | deadlocks detected | "
       "failed calls (coin / like / follow) | connections left open |")
     P("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for v, rs in st.items():
