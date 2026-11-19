@@ -28,9 +28,10 @@ jobs:
 
       # Compiles with -Werror, checks the formatting (Spotless) and runs the unit and
       # integration tests; the integration tests start PostgreSQL 16 with Testcontainers,
-      # which uses the Docker daemon of the runner.
+      # which uses the Docker daemon of the runner. The wrapper runs through bash, so the
+      # step does not depend on the executable bit of gradlew.
       - name: Build
-        run: ./gradlew build --no-daemon --stacktrace
+        run: bash ./gradlew build --no-daemon --stacktrace
 
       - name: Upload test reports
         if: failure()
