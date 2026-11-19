@@ -17,8 +17,11 @@ public class DatabaseServiceImpl implements DatabaseService {
 
     /**
      * Truncates every table of the current schema in one statement and resets identity columns.
-     * The audit log is truncated too; its TRUNCATE trigger on users then records this wipe, so the
-     * log holds exactly that one record afterwards.
+     * Every table that references another is in the list, so no CASCADE is needed; without it, a
+     * table outside the schema that referenced one of these would make the call fail instead of
+     * being emptied too. The audit log is truncated as well, because truncate() empties the whole
+     * database: its TRUNCATE trigger on users then records this wipe, so the log holds exactly that
+     * one record afterwards.
      */
     private static final String TRUNCATE_ALL =
             """
@@ -29,7 +32,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 select string_agg(format('%I', tablename), ', ') into tables
                 from pg_tables where schemaname = current_schema();
                 if tables is not null then
-                    execute 'truncate table ' || tables || ' restart identity cascade';
+                    execute 'truncate table ' || tables || ' restart identity';
                 end if;
             end
             $$
