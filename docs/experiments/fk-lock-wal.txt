@@ -1,0 +1,33 @@
+# docs/experiments/fk-lock-wal.sh, 2026-11-19T11:14:19Z, boot 2026-11-19 03:20:26
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+data_checksums=off full_page_writes=on wal_compression=off wal_log_hints=off
+users: 37881 rows in 576 pages
+
+## 200 danmus by 200 users, right after a CHECKPOINT (29/372772E8 .. 29/373EA2D0)
+WAL statistics between 29/372772E8 and 29/373EA2D0:
+Type                                           N      (%)          Record size      (%)             FPI size      (%)        Combined size      (%)
+Transaction/ABORT                              1 (  0.10)                   34 (  0.04)                    0 (  0.00)                   34 (  0.00)
+Standby/RUNNING_XACTS                          1 (  0.10)                   54 (  0.07)                    0 (  0.00)                   54 (  0.00)
+Heap/INSERT                                  198 ( 19.55)                23497 ( 29.06)                  640 (  0.04)                24137 (  1.59)
+Heap/HOT_UPDATE                                1 (  0.10)                   71 (  0.09)                    0 (  0.00)                   71 (  0.00)
+Heap/LOCK                                    202 ( 19.94)                11783 ( 14.57)              1418380 ( 98.95)              1430163 ( 94.45)
+Heap/INSERT+INIT                               2 (  0.20)                  238 (  0.29)                    0 (  0.00)                  238 (  0.02)
+Btree/INSERT_LEAF                            599 ( 59.13)                41449 ( 51.26)                 9988 (  0.70)                51437 (  3.40)
+Btree/INSERT_UPPER                             1 (  0.10)                   61 (  0.08)                  152 (  0.01)                  213 (  0.01)
+Btree/SPLIT_L                                  1 (  0.10)                 2981 (  3.69)                 4216 (  0.29)                 7197 (  0.48)
+Sequence/LOG                                   7 (  0.69)                  693 (  0.86)                    0 (  0.00)                  693 (  0.05)
+Total                                       1013                         80861 [5.34%]               1433376 [94.66%]              1514237 [100%]
+
+## the same 200 danmus again, right after the first batch (29/373EA2D0 .. 29/373FD4D8)
+WAL statistics between 29/373EA2D0 and 29/373FD4D8:
+Type                                           N      (%)          Record size      (%)             FPI size      (%)        Combined size      (%)
+Transaction/ABORT                              1 (  0.10)                   34 (  0.04)                    0 (  0.00)                   34 (  0.04)
+Heap/INSERT                                  198 ( 19.58)                23562 ( 30.41)                    0 (  0.00)                23562 ( 30.41)
+Heap/HOT_UPDATE                                1 (  0.10)                   71 (  0.09)                    0 (  0.00)                   71 (  0.09)
+Heap/LOCK                                    202 ( 19.98)                10908 ( 14.08)                    0 (  0.00)                10908 ( 14.08)
+Heap/INSERT+INIT                               2 (  0.20)                  238 (  0.31)                    0 (  0.00)                  238 (  0.31)
+Btree/INSERT_LEAF                            599 ( 59.25)                41520 ( 53.58)                    0 (  0.00)                41520 ( 53.58)
+Btree/INSERT_UPPER                             1 (  0.10)                   96 (  0.12)                    0 (  0.00)                   96 (  0.12)
+Btree/SPLIT_R                                  1 (  0.10)                  464 (  0.60)                    0 (  0.00)                  464 (  0.60)
+Sequence/LOG                                   6 (  0.59)                  594 (  0.77)                    0 (  0.00)                  594 (  0.77)
+Total                                       1011                         77487 [100.00%]                   0 [0.00%]                 77487 [100%]
