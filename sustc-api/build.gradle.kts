@@ -8,13 +8,53 @@ plugins {
     alias(libs.plugins.spring.dependencyManagement)
     alias(libs.plugins.lombok)
     alias(libs.plugins.shadow)
+    alias(libs.plugins.spotless)
 }
+
+// Spring Boot 2.7 manages pgjdbc 42.3.x; 42.7.x has the CVE-2024-1597 fix and a faster COPY path.
+extra["postgresql.version"] = libs.versions.postgresql.get()
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    // CopyManager is used for bulk import, so the driver is a compile-time dependency.
+    implementation("org.postgresql:postgresql")
 
-    // You may add any utility library you want to use, such as guava.
-    // ORM libraries are prohibited in this project.
+    // ORM libraries are prohibited in this project; all SQL is hand-written.
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.testcontainers:junit-jupiter")
+}
+
+tasks.withType<JavaCompile> {
+    options.encoding = "UTF-8"
+    // Build with JDK 17 or 21, always emitting Java 17 bytecode.
+    options.release = 17
+    options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing", "-Xlint:-serial", "-Werror"))
+}
+
+tasks.test {
+    useJUnitPlatform()
+    // Integration tests apply the real schema scripts from the repository's sql/ directory.
+    systemProperty("sustc.sql.dir", rootProject.file("sql").absolutePath)
+    maxHeapSize = "768m"
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+spotless {
+    java {
+        // Only the code written for this project; the course-provided DTOs and service
+        // interfaces keep their original formatting.
+        target("src/main/java/io/sustc/service/impl/**/*.java", "src/test/java/**/*.java")
+        palantirJavaFormat(libs.versions.palantir.java.format.get())
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }
 
 tasks.withType<BootRun> {
@@ -40,9 +80,4 @@ tasks.register("submitJar") {
 
 tasks.clean {
     delete(fileTree("$rootDir/submit").matching { include("*.jar") })
-}
-
-
-tasks.withType<JavaCompile> {
-    options.encoding = "UTF-8"
 }

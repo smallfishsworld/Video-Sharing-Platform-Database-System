@@ -2,332 +2,147 @@ package io.sustc.service.impl;
 
 import io.sustc.dto.AuthInfo;
 import io.sustc.service.DanmuService;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.sustc.service.impl.auth.Authenticator;
+import io.sustc.service.impl.auth.CurrentUser;
+import io.sustc.service.impl.support.SqlArrays;
+import io.sustc.service.impl.support.Strings;
+import io.sustc.service.impl.support.VideoVisibility;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
-import java.sql.*;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Random;
-
 @Service
-@Slf4j
 public class DanmuServiceImpl implements DanmuService {
-    @Autowired
-    private DataSource dataSource;
 
+    private static final long INVALID_ID = -1;
 
+    /**
+     * Only viewers of a published video can send danmus to it, at a time within the video. The
+     * owner and superusers get no exception here: an unpublished video has no audience yet.
+     */
+    private static final String SEND =
+            """
+            insert into danmus (bv, mid, time, content, post_time)
+            select v.bv, :me, :time, :content, :now
+            from videos v
+            where v.bv = :bv
+              and %s
+              and :time >= 0 and :time <= v.duration
+              and exists (select 1 from viewers w where w.bv = v.bv and w.mid = :me)
+            returning id
+            """
+                    .formatted(VideoVisibility.PUBLISHED);
 
-    //此方法与videoserviceimpl中的代码复用
-    boolean chkCanNotSearchOrIsOwnerorTioutbound(Long mid,String identity,String bv,float time,Connection conn)
-    {
-        try {
-            String sql;
-            PreparedStatement stmt;
-            ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
-            sql="select * from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                stmt.close();
-                return true;
-            }
-            if(identity.equals("USER")&&nowtime.before(rst.getTimestamp("publictime")))
-            {
-                stmt.close();
-                return true;
-            }
-            if(mid==rst.getLong("ownermid"))
-            {
-                stmt.close();
-                return true;
-            }
-            if(time>rst.getFloat("duration"))
-            {
-                stmt.close();
-                return true;
-            }
-            stmt.close();
-            return false;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
+    /**
+     * Returns one row (the ids, possibly none) if the video is published and the range ends
+     * within it, and no row otherwise, so that one round trip tells "no danmus" from "invalid".
+     */
+    private static final String DISPLAY =
+            """
+            select array(
+                select d.id from danmus d
+                where d.bv = v.bv and d.time between :start and :end
+                order by d.time, d.id)
+            from videos v
+            where v.bv = :bv and :end <= v.duration and %s
+            """
+                    .formatted(VideoVisibility.PUBLISHED);
 
-    boolean chkCanNotFindVideoOrVideoIsNotPublished(String bv,Connection conn)
-    {
-        try {
-            String sql;
-            PreparedStatement stmt;
-            ResultSet rst;
-            sql="select * from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                stmt.close();
-                return true;
-            }
-            Timestamp nowtime=Timestamp.from(Instant.now());
-            if(nowtime.before(rst.getTimestamp("publictime")))
-            {
-                stmt.close();
-                return true;
-            }
-            stmt.close();
-            return false;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
+    /** Like {@link #DISPLAY}, keeping only the earliest posted danmu for each content. */
+    private static final String DISPLAY_DISTINCT =
+            """
+            select array(
+                select f.id
+                from (select distinct on (d.content) d.id, d.time
+                      from danmus d
+                      where d.bv = v.bv and d.time between :start and :end
+                      order by d.content, d.post_time, d.id) f
+                order by f.time, f.id)
+            from videos v
+            where v.bv = :bv and :end <= v.duration and %s
+            """
+                    .formatted(VideoVisibility.PUBLISHED);
 
+    /** Toggles the like of a danmu whose video the user has watched; returns the new state. */
+    private static final String TOGGLE_LIKE =
+            """
+            with target as (
+                select d.id from danmus d
+                where d.id = :id and exists (select 1 from viewers w where w.bv = d.bv and w.mid = :me)
+            ),
+            removed as (
+                delete from danmulikes l
+                using target
+                where l.danmu_id = target.id and l.mid = :me
+                returning l.danmu_id
+            ),
+            added as (
+                insert into danmulikes (danmu_id, mid)
+                select id, :me from target
+                where not exists (select 1 from removed)
+                on conflict do nothing
+                returning danmu_id
+            )
+            select exists (select 1 from added)
+            """;
 
-    public boolean chkWatched(Long mid,String bv,Connection conn)
-    {
-        try {
-            String sql;
-            PreparedStatement stmt;
-            ResultSet rst;
-            sql="select * from viewers where bv=? and mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-            if(rst.next())
-            {
-                stmt.close();
-                return true;
+    private final NamedParameterJdbcTemplate jdbc;
+    private final Authenticator authenticator;
+    private final Clock clock;
 
-            }
-            else
-            {
-                stmt.close();
-                return false;
-            }
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+    public DanmuServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator, Clock clock) {
+        this.jdbc = jdbc;
+        this.authenticator = authenticator;
+        this.clock = clock;
     }
 
     @Override
-    //danmu send 560001 '' '' ''  'BV14r4y1i7vZ' 'test1220 danmu' 1.5
-    //danmu send 1783696 '' '' ''  'BV1ki0F1Wnyn'  'hello' 2.6
     public long sendDanmu(AuthInfo auth, String bv, String content, float time) {
-        try {
-            //System.out.println("chk sendDanmu");
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
-            long mid=AuthHelper.resolveMid(auth,conn);
-
-
-
-            if(mid==-1)
-            {
-                conn.close();
-                return -1;
-            }
-
-            if(AuthHelper.isNullOrEmpty(content))
-            {
-                conn.close();
-                return -1;
-            }
-
-            String identity=AuthHelper.getIdentity(mid,conn);
-            if(chkCanNotSearchOrIsOwnerorTioutbound(mid,identity,bv,time,conn))
-            {
-                conn.close();
-                return -1;
-            }
-            if(!chkWatched(mid,bv,conn))
-            {
-                conn.close();
-                return -1;
-            }
-
-
-            //System.out.println("danmu check point 2  newid "+newid);
-            sql="insert into danmus values(?,?,?,?,?,?) returning id;";
-            stmt = conn.prepareStatement(sql);
-            Random r=new Random();
-            long inf=(long)1e18;
-            stmt.setLong(1,Math.abs(r.nextLong()%inf+1));
-            stmt.setString(2,bv);
-            stmt.setLong(3,mid);
-            stmt.setDouble(4,time);
-            stmt.setString(5,content);
-            stmt.setTimestamp(6,nowtime);
-            stmt.execute();
-            rst=stmt.getResultSet();
-            rst.next();
-            long newid=rst.getLong(1);
-
-
-            //System.out.println("check point 3");
-            conn.close();stmt.close();
-            return newid;
-
-
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || bv == null || Strings.isNullOrEmpty(content) || Float.isNaN(time)) {
+            return INVALID_ID;
         }
-
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("bv", bv)
+                .addValue("me", me.get().mid())
+                .addValue("time", (double) time)
+                .addValue("content", content)
+                .addValue("now", now());
+        return jdbc.queryForList(SEND, params, Long.class).stream().findFirst().orElse(INVALID_ID);
     }
 
     @Override
-    //danmu display 'BV1mG4y1z761'  0 1000 false
     public List<Long> displayDanmu(String bv, float timeStart, float timeEnd, boolean filter) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            List<Long> list=new ArrayList<Long>();
-
-            if(chkCanNotFindVideoOrVideoIsNotPublished(bv,conn))
-            {
-                conn.close();
-                return null;
-            }
-            if(timeStart<0||timeEnd<0||timeStart>timeEnd)
-            {
-                conn.close();
-                return null;
-            }
-            sql="select duration from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            rst.next();
-            if(timeEnd>rst.getFloat("duration"))
-            {
-                conn.close();
-                return null;
-            }
-
-
-            sql="select * from danmus where bv=? and time>=? and time<=? order by time";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setFloat(2,timeStart);
-            stmt.setFloat(3,timeEnd);
-            rst=stmt.executeQuery();
-            if(filter==false)
-            {
-                while(rst.next())
-                {
-                    list.add(rst.getLong("id"));
-                }
-            }
-            else {
-                String las="",now;
-                HashMap< String,Integer> mp=new HashMap<String,Integer>();
-                while(rst.next())
-                {
-                    now=rst.getString("content");
-                    if(mp.containsKey(now)) continue;
-                    else
-                    {
-                        list.add(rst.getLong("id"));
-                        mp.put(now,1);
-                    }
-                }
-            }
-            conn.close();stmt.close();
-            return list;
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
+        if (bv == null || Float.isNaN(timeStart) || Float.isNaN(timeEnd) || timeStart < 0 || timeStart > timeEnd) {
+            return null;
         }
-
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("bv", bv)
+                .addValue("start", (double) timeStart)
+                .addValue("end", (double) timeEnd)
+                .addValue("now", now());
+        List<List<Long>> rows = jdbc.query(
+                filter ? DISPLAY_DISTINCT : DISPLAY, params, (rs, i) -> SqlArrays.toLongList(rs.getArray(1)));
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     @Override
-    //danmu like 1783696 '' '' '' 308
     public boolean likeDanmu(AuthInfo auth, long id) {
-        try {
-            //System.out.println("mchk like danmu "+auth.toString()+"  "+id);
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            long mid=AuthHelper.resolveMid(auth,conn);
-
-
-
-            String bv;
-
-            if(mid==-1)
-            {
-                conn.close();
-                return false;
-            }
-            sql="select * from danmus where id=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,id);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-
-            bv=rst.getString("bv");
-            if(!chkWatched(mid,bv,conn))
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-
-            sql="select * from danmulikes where id=? and mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,id);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-            boolean liked;
-            if(rst.next()) liked=true;
-            else liked=false;
-
-            if(liked==false)
-            {
-                sql="insert into danmulikes values(?,?)";
-                stmt = conn.prepareStatement(sql);
-                stmt.setLong(1,id);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return true;
-            }
-            else {
-                sql="delete from danmulikes where id=? and mid=?";
-                stmt = conn.prepareStatement(sql);
-                stmt.setLong(1,id);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return false;
-            }
-
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty()) {
+            return false;
         }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("id", id)
+                .addValue("me", me.get().mid());
+        return Boolean.TRUE.equals(jdbc.queryForObject(TOGGLE_LIKE, params, Boolean.class));
+    }
 
+    private Timestamp now() {
+        return Timestamp.from(clock.instant());
     }
 }

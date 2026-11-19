@@ -4,489 +4,180 @@ import io.sustc.dto.AuthInfo;
 import io.sustc.dto.RegisterUserReq;
 import io.sustc.dto.UserInfoResp;
 import io.sustc.service.UserService;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.sustc.service.impl.auth.Authenticator;
+import io.sustc.service.impl.auth.CurrentUser;
+import io.sustc.service.impl.support.SqlArrays;
+import io.sustc.service.impl.support.Strings;
+import java.sql.Types;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.Random;
-
 @Service
-@Slf4j
 public class UserServiceImpl implements UserService {
-    @Autowired
-    private DataSource dataSource;
-    static boolean chkBirthday(String s)
-    {
-        if(s==null) return true;
-        int n,idx1,idx2;
-        n=s.length();
-        idx1=s.indexOf("月");
-        idx2=s.indexOf("日");
-        if(idx1==-1||idx2==-1||idx1>idx2||idx2!=n-1||s.charAt(0)>'9'||s.charAt(0)<'0') return false;
-        int num1,num2;
-        int i,now;
-        char c;
-        num1=-1;num2=-1;
-        now=0;
-        for(i=0;i<n;i++)
-        {
-            c=s.charAt(i);
-            if(c<'0'||c>'9')
-            {
-                if(now!=0)
-                {
-                    if(num1==-1) num1=now;
-                    else num2=now;
 
-                    now=0;
-                }
-            }
-            else
-            {
-                now=now*10+c-'0';
-            }
-        }
+    static final long INVALID_MID = -1;
 
-        //System.out.println("string "+s+"   num1 num2   "+num1+"  "+num2);
-        int tnu=30;
-        if(num1<1||num1>12) return false;
-        switch(num1){
-            case 1,3,5,7,8,10,12:
-                tnu=31;break;
-            default:tnu=30;
-        }
-        if(num2<1||num2>tnu) return false;
-        //System.out.println("check OK");
-        return true;
+    private static final Pattern BIRTHDAY = Pattern.compile("(\\d{1,2})月(\\d{1,2})日");
+
+    /** Days per month; February allows the 29th because a birthday has no year. */
+    private static final int[] DAYS_IN_MONTH = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    /**
+     * New users start at level 0 with no coins. Conflicts on the unique qq/wechat columns make the
+     * insert return no row, which closes the race between "check for duplicates" and "insert".
+     */
+    private static final String INSERT_USER =
+            """
+            insert into users (name, sex, birthday, level, coin, sign, identity, password, qq, wechat)
+            values (:name, :sex, :birthday, 0, 0, :sign, 'USER', :password, :qq, :wechat)
+            on conflict do nothing
+            returning mid
+            """;
+
+    /**
+     * A regular user may delete only their own account; a superuser may also delete regular
+     * users. The foreign keys cascade, so this single statement also removes the user's videos
+     * (with every interaction on them), danmus, follow relations and interaction records.
+     */
+    private static final String DELETE_USER =
+            """
+            delete from users
+            where mid = :target
+              and (mid = :me or (:superuser and identity = 'USER'))
+            """;
+
+    /** Toggles the relation and reports whether the user follows the followee afterwards. */
+    private static final String TOGGLE_FOLLOW =
+            """
+            with followee as (
+                select mid from users where mid = :followee and mid <> :me
+            ),
+            removed as (
+                delete from followings f
+                using followee
+                where f.follower_mid = :me and f.followee_mid = followee.mid
+                returning f.followee_mid
+            ),
+            added as (
+                insert into followings (follower_mid, followee_mid)
+                select :me, mid from followee
+                where not exists (select 1 from removed)
+                on conflict do nothing
+                returning followee_mid
+            )
+            select exists (select 1 from added)
+            """;
+
+    private static final String USER_INFO =
+            """
+            select u.mid,
+                   u.coin,
+                   array(select followee_mid from followings where follower_mid = u.mid) as following,
+                   array(select follower_mid from followings where followee_mid = u.mid) as follower,
+                   array(select bv from viewers where mid = u.mid) as watched,
+                   array(select bv from videolikes where mid = u.mid) as liked,
+                   array(select bv from favorites where mid = u.mid) as collected,
+                   array(select bv from videos where owner_mid = u.mid) as posted
+            from users u
+            where u.mid = :mid
+            """;
+
+    private final NamedParameterJdbcTemplate jdbc;
+    private final Authenticator authenticator;
+
+    public UserServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator) {
+        this.jdbc = jdbc;
+        this.authenticator = authenticator;
     }
 
-
-
-    //register 123 123 123 123 MALE 1月1日 123
-    //user register 'f7c44a8cb3cd4aeb' '097904460803598801' '7a6466ee#f044#' 'aaaafc1b1' 'MALE'  '5月31日'  'f8a03713-5f87-4c)'
     @Override
-    public long register(RegisterUserReq req)
-    {
-        //System.out.println("chk point 1");
-        if(AuthHelper.isNullOrEmpty(req.getPassword())||AuthHelper.isNullOrEmpty(req.getName())||AuthHelper.isNullOrEmpty(req.getSex().toString()))
-        {
-            return -1;
+    public long register(RegisterUserReq req) {
+        if (req == null
+                || Strings.isNullOrEmpty(req.getPassword())
+                || Strings.isNullOrEmpty(req.getName())
+                || req.getSex() == null
+                || !isValidBirthday(req.getBirthday())) {
+            return INVALID_MID;
         }
-        //System.out.println("chk point 2");
-        if(chkBirthday(req.getBirthday())==false)
-        {
-            return -1;
-        }
-        //System.out.println("chk point 3");
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            sql="select * from users where qq=? or wechat=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,req.getQq());
-            stmt.setString(2,req.getWechat());
-            rst=stmt.executeQuery();
-            if(rst.next())
-            {
-                conn.close();
-                stmt.close();
-                return -1;
-            }
-            sql="insert into users values(?,?,?,?,?,?,?,?,?,?,?) returning mid;";
-            stmt = conn.prepareStatement(sql);
-
-            Random r=new Random();
-            long inf=(long)1e18;
-            stmt.setLong(1,Math.abs(r.nextLong()%inf+1));
-            stmt.setString(2,req.getName());
-            stmt.setString(3,req.getSex().toString());
-            stmt.setString(4,req.getBirthday());
-            stmt.setInt(5,0);
-            stmt.setInt(6,0);
-            stmt.setString(7,req.getSign());
-            stmt.setString(8,"USER");
-            stmt.setString(9,req.getPassword());
-            stmt.setString(10,req.getQq());
-            stmt.setString(11,req.getWechat());
-            stmt.execute();
-            rst=stmt.getResultSet();
-            rst.next();
-            long newmid=rst.getLong(1);
-            conn.close();stmt.close();
-            return newmid;
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("name", req.getName())
+                .addValue("sex", storedSex(req.getSex()))
+                .addValue("birthday", Strings.emptyToNull(req.getBirthday()), Types.VARCHAR)
+                .addValue("sign", req.getSign(), Types.VARCHAR)
+                .addValue("password", req.getPassword())
+                .addValue("qq", Strings.emptyToNull(req.getQq()), Types.VARCHAR)
+                .addValue("wechat", Strings.emptyToNull(req.getWechat()), Types.VARCHAR);
+        return jdbc.queryForList(INSERT_USER, params, Long.class).stream()
+                .findFirst()
+                .orElse(INVALID_MID);
     }
 
+    @Override
+    public boolean deleteAccount(AuthInfo auth, long mid) {
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty()) {
+            return false;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("target", mid)
+                .addValue("me", me.get().mid())
+                .addValue("superuser", me.get().superuser());
+        return jdbc.update(DELETE_USER, params) == 1;
+    }
 
     @Override
-    //user delete 1966193 '' '' ''  1704073
-    public boolean deleteAccount(AuthInfo auth, long mid)
-    {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            //System.out.println("check point 1  "+auth.toString()+"  "+mid);
-            long mid2=AuthHelper.resolveMid(auth,conn);
-            //System.out.println("check point 2    mid2   "+mid2);
-            if(mid2==-1)
-            {
-                conn.close();
-                return false;
-            }
-            sql="select * from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-            String identity2=AuthHelper.getIdentity(mid2,conn);
-            String identity=AuthHelper.getIdentity(mid,conn);
-            //.println("chk identity"+identity2);
+    public boolean follow(AuthInfo auth, long followeeMid) {
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty()) {
+            return false;
+        }
+        MapSqlParameterSource params =
+                new MapSqlParameterSource().addValue("me", me.get().mid()).addValue("followee", followeeMid);
+        return Boolean.TRUE.equals(jdbc.queryForObject(TOGGLE_FOLLOW, params, Boolean.class));
+    }
 
-            if(identity2.equals("USER")) {
-                if (mid2 != mid) {
-                    conn.close();
-                    stmt.close();
-                    return false;
-                }
-            }
-            else{
-                if(identity.equals("SUPERUSER")&&mid2!=mid)
-                {
-                    conn.close();
-                    stmt.close();
-                    return false;
-                }
-            }
+    @Override
+    public UserInfoResp getUserInfo(long mid) {
+        return jdbc
+                .query(USER_INFO, new MapSqlParameterSource("mid", mid), (rs, rowNum) -> UserInfoResp.builder()
+                        .mid(rs.getLong("mid"))
+                        .coin(rs.getInt("coin"))
+                        .following(SqlArrays.toLongArray(rs.getArray("following")))
+                        .follower(SqlArrays.toLongArray(rs.getArray("follower")))
+                        .watched(SqlArrays.toStringArray(rs.getArray("watched")))
+                        .liked(SqlArrays.toStringArray(rs.getArray("liked")))
+                        .collected(SqlArrays.toStringArray(rs.getArray("collected")))
+                        .posted(SqlArrays.toStringArray(rs.getArray("posted")))
+                        .build())
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
 
-            sql="delete from coins where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            //System.out.println("check point 3");
-
-            sql="delete from danmulikes where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            sql="delete from danmus where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            sql="delete from favorites where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            //System.out.println("check point 4");
-            sql="delete from followings where mid1=? or mid2=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.setLong(2,mid);
-            stmt.execute();
-
-            //System.out.println("check point 5");
-
-            sql="delete from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            //System.out.println("check point 6");
-            sql="delete from videolikes where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            //System.out.println("check point 7");
-            sql="delete from viewers where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            //System.out.println("check point 8");
-            sql="delete from videos where ownermid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.execute();
-
-            conn.close();stmt.close();
+    /** A birthday is optional; when present it must be a real calendar day such as {@code 2月29日}. */
+    static boolean isValidBirthday(String birthday) {
+        if (Strings.isNullOrEmpty(birthday)) {
             return true;
-        } catch (SQLException e) {
-        throw new RuntimeException(e);
         }
-
+        Matcher m = BIRTHDAY.matcher(birthday);
+        if (!m.matches()) {
+            return false;
+        }
+        int month = Integer.parseInt(m.group(1));
+        int day = Integer.parseInt(m.group(2));
+        return month >= 1 && month <= 12 && day >= 1 && day <= DAYS_IN_MONTH[month - 1];
     }
 
-
-    @Override
-    //follow 233333 '' '' 'If@Eoavxco*@'  1525136
-    public boolean follow(AuthInfo auth, long followeeMid)
-    {
-
-
-        try{
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-
-
-            Long mid=AuthHelper.resolveMid(auth,conn);
-            //System.out.println("check mid "+ mid);
-            if(mid==-1) {
-                conn.close();
-                return false;
-            }
-
-
-            sql="select * from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,followeeMid);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-            if(mid==followeeMid)
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-            boolean type;// type=0 : 加      type=1:删
-            sql="select * from followings where mid1=? and mid2=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.setLong(2,followeeMid);
-            rst=stmt.executeQuery();
-            if(rst.next())
-            {
-                type=true;
-            }
-            else
-            {
-                type=false;
-            }
-
-            if(type)
-            {
-                sql="delete from followings where mid1=? and mid2=?";
-                stmt = conn.prepareStatement(sql);
-                stmt.setLong(1,mid);
-                stmt.setLong(2,followeeMid);
-                stmt.execute();
-            }
-            else
-            {
-                sql="insert into followings values(?,?)";
-                stmt = conn.prepareStatement(sql);
-                stmt.setLong(1,mid);
-                stmt.setLong(2,followeeMid);
-                stmt.execute();
-            }
-            conn.close();stmt.close();
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-        return true;
-
-    }
-
-
-    @Override
-    //get-user-info 12557
-    public UserInfoResp getUserInfo(long mid)
-    {
-        //System.out.println("check getUserInfo" + mid);
-        UserInfoResp now=new UserInfoResp();
-
-        try
-        {
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            String sql;
-            ResultSet rst;
-            //System.out.println("N chk point 0");
-
-
-            sql="select * from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();
-                stmt.close();
-                return null;
-            }
-
-
-            now.setMid(mid);
-            now.setCoin(rst.getInt("coin"));
-
-           // System.out.println("N chk point 1");
-
-            int cnt;
-            long [] following;
-            sql="select count(*) from followings where mid1=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            following=new long[cnt];
-            sql="select mid2 from followings where mid1=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                following[cnt]=rst.getLong(1);
-                cnt++;
-            }
-            now.setFollowing(following);
-
-            //System.out.println("N chk point 2");
-
-            long [] follower;
-            sql="select count(*) from followings where mid2=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            follower=new long[cnt];
-            sql="select mid1 from followings where mid2=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                follower[cnt]=rst.getLong(1);
-                cnt++;
-            }
-            now.setFollower(follower);
-
-            //System.out.println("N chk point 3");
-
-            String [] watched;
-            sql="select count(*) from viewers where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            watched=new String[cnt];
-            sql="select bv from viewers where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                watched[cnt]=rst.getString(1);
-                cnt++;
-            }
-            now.setWatched(watched);
-
-            //System.out.println("N chk point 4");
-
-            String [] liked;
-            sql="select count(*) from videolikes where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            liked=new String[cnt];
-            sql="select bv from videolikes where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                liked[cnt]=rst.getString(1);
-                cnt++;
-            }
-            now.setLiked(liked);
-
-            //System.out.println("N chk point 5");
-
-            String [] collected;
-            sql="select count(*) from favorites where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            collected=new String[cnt];
-            sql="select bv from favorites where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                collected[cnt]=rst.getString(1);
-                cnt++;
-            }
-            now.setCollected(collected);
-
-
-            //System.out.println("N chk point 6");
-
-            String [] posted;
-            sql="select count(*) from videos where ownermid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            cnt=rst.getInt(1);
-            posted=new String[cnt];
-            sql="select bv from videos where ownermid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                posted[cnt]=rst.getString(1);
-                cnt++;
-            }
-            now.setPosted(posted);
-
-            //System.out.println("N chk point 7");
-            conn.close();
-            stmt.close();
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-
-        return now;
+    /** Stores the gender with the same labels that the imported data uses. */
+    static String storedSex(RegisterUserReq.Gender gender) {
+        return switch (gender) {
+            case MALE -> "男";
+            case FEMALE -> "女";
+            case UNKNOWN -> "保密";
+        };
     }
 }

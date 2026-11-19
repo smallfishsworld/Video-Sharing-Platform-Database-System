@@ -1,845 +1,348 @@
 package io.sustc.service.impl;
 
-
 import io.sustc.dto.AuthInfo;
 import io.sustc.dto.PostVideoReq;
 import io.sustc.service.VideoService;
+import io.sustc.service.impl.auth.Authenticator;
+import io.sustc.service.impl.auth.CurrentUser;
+import io.sustc.service.impl.support.Page;
+import io.sustc.service.impl.support.SqlArrays;
+import io.sustc.service.impl.support.Strings;
+import io.sustc.service.impl.support.VideoVisibility;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Clock;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
-
-import javax.sql.DataSource;
-import java.sql.*;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.*;
 
 @Service
 @Slf4j
 public class VideoServiceImpl implements VideoService {
 
-    @Autowired
-    private DataSource dataSource;
+    static final float MIN_DURATION_SECONDS = 10;
+    static final int HOTSPOT_CHUNK_SECONDS = 10;
+    private static final int MAX_BV_ATTEMPTS = 5;
+    private static final String BV_PREFIX = "BV1";
+    private static final int BV_RANDOM_LENGTH = 9;
+    private static final String BV_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+    /**
+     * The owner name is copied from the users table. A duplicate (owner, title) makes the insert
+     * return no row; a bv collision raises a unique violation and the caller retries.
+     */
+    private static final String INSERT_VIDEO =
+            """
+            insert into videos (bv, title, owner_mid, owner_name, commit_time, public_time, duration, description)
+            select :bv, :title, u.mid, u.name, :now, :publicTime, :duration, :description
+            from users u
+            where u.mid = :me
+            on conflict (owner_mid, title) do nothing
+            returning bv
+            """;
 
+    /** Foreign keys cascade to every interaction with the video, so one statement suffices. */
+    private static final String DELETE_VIDEO = "delete from videos where bv = :bv and (:superuser or owner_mid = :me)";
 
-    boolean chkCanNotSearchOrIsOwner(Long mid,String identity,String bv,Connection conn)
-    {
-       // System.out.println("mcheck  chkCanNotSearchOrIsOwner!");
-        try {
-            String sql;
-            PreparedStatement stmt;
-            ResultSet rst;
-            Timestamp nowtime=Timestamp.from(Instant.now());
-            sql="select * from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                stmt.close();
-                return true;
-            }
-            if(identity.equals("USER")&&nowtime.before(rst.getTimestamp("publictime")))
-            {
-                stmt.close();
-                return true;
-            }
-            if(mid==rst.getLong("ownermid"))
-            {
-                stmt.close();
-                return true;
-            }
-            stmt.close();
-            return false;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+    /**
+     * Applies an owner's edit if the duration is unchanged and something actually changed. Any
+     * edit sends the video back for review; the result says whether it had been reviewed.
+     */
+    private static final String UPDATE_VIDEO =
+            """
+            update videos v
+            set title = :title, description = :description, public_time = :publicTime,
+                review_time = null, reviewer = null
+            from videos old
+            where old.bv = v.bv
+              and v.bv = :bv
+              and v.owner_mid = :me
+              and v.duration = :duration
+              and (v.title, v.description, v.public_time) is distinct from (:title, :description, :publicTime)
+            returning old.review_time is not null
+            """;
+
+    /**
+     * Relevance is the total number of non-overlapping, case-insensitive occurrences of every
+     * keyword in the title, description and owner name. Ties are broken by view count, then by
+     * bv so that pages are stable.
+     */
+    private static final String SEARCH =
+            """
+            select v.bv
+            from videos v
+            cross join lateral (
+                select sum(count_occurrences(lower(v.title), k.word)
+                         + count_occurrences(lower(coalesce(v.description, '')), k.word)
+                         + count_occurrences(lower(v.owner_name), k.word)) as relevance
+                from (select lower(w) as word from unnest(:keywords) as w) k
+            ) r
+            where r.relevance > 0
+              and %s
+            order by r.relevance desc, (select count(*) from viewers w where w.bv = v.bv) desc, v.bv
+            limit :limit offset :offset
+            """
+                    .formatted(VideoVisibility.VISIBLE_TO_ME);
+
+    private static final String AVERAGE_VIEW_RATE =
+            """
+            select avg(w.view_time) / v.duration
+            from videos v
+            join viewers w on w.bv = v.bv
+            where v.bv = :bv
+            group by v.bv
+            """;
+
+    private static final String HOTSPOTS =
+            """
+            select chunk
+            from (select floor(time / :chunk)::integer as chunk, rank() over (order by count(*) desc) as rnk
+                  from danmus
+                  where bv = :bv
+                  group by chunk) ranked
+            where rnk = 1
+            """;
+
+    /** The conditions in the UPDATE make concurrent reviews of the same video safe. */
+    private static final String REVIEW_VIDEO =
+            """
+            update videos set review_time = :now, reviewer = :me
+            where bv = :bv and review_time is null and owner_mid <> :me
+            """;
+
+    /**
+     * Charges one coin and records the donation in one statement, so it is atomic: the coin is
+     * only taken if the donation row is inserted, and {@code coin > 0} together with the row lock
+     * taken by the UPDATE serializes concurrent donations by one user. A concurrent donation to
+     * the same video fails on the coins primary key and the whole statement rolls back.
+     */
+    private static final String DONATE_COIN =
+            """
+            with target as (
+                select v.bv
+                from videos v
+                where v.bv = :bv
+                  and v.owner_mid <> :me
+                  and %s
+                  and not exists (select 1 from coins c where c.bv = v.bv and c.mid = :me)
+            ),
+            charged as (
+                update users set coin = coin - 1
+                where mid = :me and coin > 0 and exists (select 1 from target)
+                returning mid
+            )
+            insert into coins (bv, mid)
+            select target.bv, charged.mid from target, charged
+            """
+                    .formatted(VideoVisibility.VISIBLE_TO_ME);
+
+    /** Like/collect toggle: removes the row if present, inserts it otherwise; returns the new state. */
+    private static final String TOGGLE =
+            """
+            with target as (
+                select v.bv from videos v
+                where v.bv = :bv and v.owner_mid <> :me and %s
+            ),
+            removed as (
+                delete from %s t
+                using target
+                where t.bv = target.bv and t.mid = :me
+                returning t.bv
+            ),
+            added as (
+                insert into %2$s (bv, mid)
+                select bv, :me from target
+                where not exists (select 1 from removed)
+                on conflict do nothing
+                returning bv
+            )
+            select exists (select 1 from added)
+            """;
+
+    private static final String TOGGLE_LIKE = TOGGLE.formatted(VideoVisibility.VISIBLE_TO_ME, "videolikes");
+    private static final String TOGGLE_FAVORITE = TOGGLE.formatted(VideoVisibility.VISIBLE_TO_ME, "favorites");
+
+    private final NamedParameterJdbcTemplate jdbc;
+    private final Authenticator authenticator;
+    private final Clock clock;
+
+    public VideoServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator, Clock clock) {
+        this.jdbc = jdbc;
+        this.authenticator = authenticator;
+        this.clock = clock;
     }
 
-
-
-    public String generateNewBv()
-    {
-        //System.out.println("mcheck  generateNewBv!");
-        //System.out.println("generateNewBv check");
-        Random rand = new Random();
-        String s="";
-        char c;
-        int i,num;
-        s="BV1";
-        for(i=1;i<=9;i++)
-        {
-            //System.out.println("generate string at "+i);
-            num=rand.nextInt(62);
-            if(num>=0&&num<10)
-            {
-                c=(char)('0'+num);
-            }
-            else if(num>=10&&num<36)
-            {
-                c=(char)('a'+num-10);
-            }
-            else
-            {
-                c=(char)('A'+num-36);
-            }
-            s=s+c;
-        }
-        return s;
-    }
-
-    boolean chkVideoReq(Long mid,Timestamp nowtime,PostVideoReq req)
-    {
-
-        if(AuthHelper.isNullOrEmpty(req.getTitle())||req.getDuration()<10||req.getPublicTime()==null||req.getPublicTime().before(nowtime))
-        {
-            return false;
-        }
-
-        return true;
-    }
     @Override
-    //post-video 1966089 '' '' ''   'Shenzhen Vlog'   'no description'  32 '2024-03-17 18:13:13'
     public String postVideo(AuthInfo auth, PostVideoReq req) {
-        //System.out.println(" postVideo   check point 1");
-        long mid;
-        String bv,ownername;
-        Timestamp nowtime=Timestamp.from(Instant.now());
-        //LocalDateTime ldt=LocalDateTime.now();
-        //long timestamp = ldt.toInstant(ZoneOffset.of("+8")).toEpochMilli();
-
-
-
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-
-
-            mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return null;
-            }
-
-
-            if(!chkVideoReq(mid,nowtime,req))
-            {
-                conn.close();
-                return null;
-            }
-
-
-
-            sql="select * from videos where title=? and ownermid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,req.getTitle());
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-            if(rst.next())
-            {
-                conn.close();stmt.close();
-                return null;
-            }
-
-
-
-
-            //System.out.println(" postVideo   check point 4");
-
-            bv=generateNewBv();
-            sql="select * from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            ownername=rst.getString("name");
-
-            //System.out.println(" postVideo   check point 5");
-
-            sql="insert into videos values(?,?,?,?,?,?,?,?,?,?);";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setString(2,req.getTitle());
-            stmt.setLong(3,mid);
-            stmt.setString(4,ownername);
-            stmt.setTimestamp(5,nowtime);
-            stmt.setTimestamp(6,null);
-            stmt.setTimestamp(7,req.getPublicTime());
-            stmt.setFloat(8,req.getDuration());
-            stmt.setString(9,req.getDescription());
-            stmt.setLong(10,0);
-            stmt.execute();
-
-
-            //System.out.println(" postVideo   check point 6");
-            conn.close();stmt.close();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
+        Timestamp now = now();
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || !isValid(req, now)) {
+            return null;
         }
-        return bv;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("me", me.get().mid())
+                .addValue("title", req.getTitle())
+                .addValue("now", now)
+                .addValue("publicTime", req.getPublicTime())
+                .addValue("duration", (double) req.getDuration())
+                .addValue("description", req.getDescription(), Types.VARCHAR);
+        for (int attempt = 1; attempt <= MAX_BV_ATTEMPTS; attempt++) {
+            params.addValue("bv", newBv());
+            try {
+                return jdbc.queryForList(INSERT_VIDEO, params, String.class).stream()
+                        .findFirst()
+                        .orElse(null);
+            } catch (DuplicateKeyException e) {
+                log.debug("Generated bv collided with an existing video (attempt {})", attempt);
+            }
+        }
+        throw new IllegalStateException("Could not generate an unused bv in " + MAX_BV_ATTEMPTS + " attempts");
     }
 
     @Override
-    //video delete 250858633 '' '' ''  'BV1bt4y1x7Wk'
-    //18202105
     public boolean deleteVideo(AuthInfo auth, String bv) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return false;
-            }
-            String identity=AuthHelper.getIdentity(mid,conn);
-
-            sql="select * from videos where bv=? ";
-            if(identity.equals("USER"))
-            {
-                sql=sql+" and ownermid=?";
-            }
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            if(identity.equals("USER"))
-            {
-                stmt.setLong(2,mid);
-            }
-
-           // System.out.println("check identity "+identity);
-           // System.out.println("check sql"+stmt);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-            sql="delete from coins where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-
-            sql="delete from danmus where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-
-
-            sql="delete from favorites where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-
-            sql="delete from videolikes where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-
-            sql="delete from viewers where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-
-            sql="delete from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.execute();
-            conn.close();stmt.close();
-            return true;
-
-        } catch (SQLException e) {
-        throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    //update-video-info  250858633 '' '' ''   'BV1cJ411H77j'  'Test1219' 'No' 479 '2025-01-14 18:00:24.000000'
-    public boolean updateVideoInfo(AuthInfo auth, String bv, PostVideoReq req) {
-        if (req == null) {
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || bv == null) {
             return false;
         }
-        Timestamp nowtime = Timestamp.from(Instant.now());
+        return jdbc.update(DELETE_VIDEO, VideoVisibility.bind(me.get(), now()).addValue("bv", bv)) == 1;
+    }
 
-        try (Connection conn = dataSource.getConnection()) {
-            long mid = AuthHelper.resolveMid(auth, conn);
-            if (mid == AuthHelper.INVALID_MID) {
-                return false;
-            }
-            if (!chkVideoReq(mid, nowtime, req)) {
-                return false;
-            }
-
-            boolean needsReReview;
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "select title, description, duration, publicTime, reviewTime from videos where bv = ? and ownerMid = ?")) {
-                stmt.setString(1, bv);
-                stmt.setLong(2, mid);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    // Video not found, or the current user is not its owner.
-                    if (!rs.next()) {
-                        return false;
-                    }
-                    // Duration must not change.
-                    if (rs.getFloat("duration") != req.getDuration()) {
-                        return false;
-                    }
-                    // Nothing changed.
-                    if (Objects.equals(rs.getString("title"), req.getTitle())
-                            && Objects.equals(rs.getString("description"), req.getDescription())
-                            && Objects.equals(rs.getTimestamp("publicTime"), req.getPublicTime())) {
-                        return false;
-                    }
-                    Timestamp reviewTime = rs.getTimestamp("reviewTime");
-                    needsReReview = reviewTime != null && reviewTime.before(nowtime);
-                }
-            }
-
-            // The new title must not clash with another video of the same owner.
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "select 1 from videos where ownerMid = ? and title = ? and bv <> ?")) {
-                stmt.setLong(1, mid);
-                stmt.setString(2, req.getTitle());
-                stmt.setString(3, bv);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        return false;
-                    }
-                }
-            }
-
-            String sql = needsReReview
-                    ? "update videos set title = ?, description = ?, publicTime = ?, reviewTime = null, reviewer = 0 where bv = ?"
-                    : "update videos set title = ?, description = ?, publicTime = ? where bv = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, req.getTitle());
-                stmt.setString(2, req.getDescription());
-                stmt.setTimestamp(3, req.getPublicTime());
-                stmt.setString(4, bv);
-                stmt.executeUpdate();
-            }
-            return needsReReview;
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
+    @Override
+    public boolean updateVideoInfo(AuthInfo auth, String bv, PostVideoReq req) {
+        Timestamp now = now();
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || bv == null || !isValid(req, now)) {
+            return false;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("bv", bv)
+                .addValue("me", me.get().mid())
+                .addValue("title", req.getTitle())
+                .addValue("description", req.getDescription(), Types.VARCHAR)
+                .addValue("publicTime", req.getPublicTime())
+                .addValue("duration", (double) req.getDuration());
+        try {
+            List<Boolean> wasReviewed = jdbc.queryForList(UPDATE_VIDEO, params, Boolean.class);
+            return !wasReviewed.isEmpty() && wasReviewed.get(0);
+        } catch (DuplicateKeyException e) {
+            // The owner already has another video with the new title.
+            return false;
         }
     }
 
-
-
-    public String prechgString(String s)
-    {
-        String t="",h;
-        int n,i;
-        char c;
-        n=s.length();
-        for(i=0;i<n;i++)
-        {
-            c=s.charAt(i);
-            if(c=='+'||c=='%'||c=='?'||c=='.')
-            {
-                t=t+"\\"+c;
-            }
-            else
-            {
-                if(c>='A'&&c<='Z')
-                {
-                    c=(char)('a'+(c-'A'));
-                }
-                t=t+c;
-            }
-        }
-        return t;
-    }
-
-    //video search 1704272 '' '' ''  '我 一'  100 1
-    //video search 1966089 '' '' ''  'Shen'  100 1
-
-    //video search 1704272 '' '' ''  '?'  100 1
-    //video search 0 '' '' 'htMh!EWVPruq'  'you m TUbE mM' 10 1
     @Override
     public List<String> searchVideo(AuthInfo auth, String keywords, int pageSize, int pageNum) {
-
-
-        //System.out.println("keywords 我 一");
-        //System.out.println("check point 0!!!");
-        //System.out.println(auth.toString()+"    "+keywords+"  "+pageSize+" "+pageNum);
-        Timestamp nowtime=Timestamp.from(Instant.now());
-        try {
-            String sql,identity;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            int i,j,bh=0;
-            String[] lis;
-            Long mid;
-
-
-            mid=AuthHelper.resolveMid(auth,conn);
-
-
-            if(mid==-1||AuthHelper.isNullOrEmpty(keywords)||pageSize<=0||pageNum<=0)
-            {
-                conn.close();
-                return null;
-            }
-
-            identity=AuthHelper.getIdentity(mid,conn);
-
-
-
-
-            lis=keywords.split(" ");
-
-
-            for(i=0;i<lis.length;i++)
-            {
-                lis[i]=prechgString(lis[i]);
-                //System.out.println("chk lis "+i+"  "+lis[i]);
-            }
-
-
-
-            sql="with tmp as ( select distinct t.bv,t.cnt,count(*) as views from (select bv, ";
-
-
-//            for(i=0;i<lis.length;i++)
-//            {
-//                if(i!=0) sql=sql+"+";
-//                sql=sql+"(case when title like ? then 1 else 0 end)+(case when description like ? then 1 else 0 end)+(case when ownername like ? then 1 else 0 end)";
-//            }
-
-            for(i=0;i<lis.length;i++)
-            {
-                if(i!=0) sql=sql+"+";
-                sql=sql+"(array_length(regexp_split_to_array(lower(title),?),1)-1)";
-
-                sql=sql+"+(array_length(regexp_split_to_array(lower(description),?),1)-1)";
-
-                sql=sql+"+(array_length(regexp_split_to_array(lower(ownername),?),1)-1)";
-            }
-
-//            sql=sql+" as cnt from videos where (";
-//
-//
-//            for(i=0;i<lis.length;i++)
-//            {
-//                if(i!=0) sql=sql+" or ";
-//                sql=sql+" title like '%'|| ? ||'%' or description like '%'|| ? ||'%' or ownername like '%'|| ? ||'%' ";
-//            }
-//
-//            sql=sql+")";
-//
-            sql=sql+" as cnt from videos ";
-//            for(i=0;i<lis.length;i++)
-//            {
-//                if(i!=0) sql=sql+" or ";
-//                sql=sql+" title like '%'|| ? ||'%' or description like '%'|| ? ||'%' or ownername like '%'|| ? ||'%' ";
-//            }
-//            sql=sql+")";
-
-
-            if(identity.equals("USER"))
-            {
-
-                sql=sql+" where (publictime < ? or ownermid = ? )";
-            }
-
-
-
-            sql=sql+" order by bv) t left join viewers r on t.bv=r.bv where t.cnt>0 group by t.bv,t.cnt)    select * from tmp order by cnt desc,views desc offset ? limit ?";
-
-
-
-
-            //System.out.println("check point 1: "+sql);
-
-            stmt = conn.prepareStatement(sql);
-
-
-            bh=0;
-            for(i=0;i<lis.length;i++)
-            {
-                for(j=0;j<3;j++)
-                {
-                    bh++;
-                    stmt.setString(bh,lis[i]);
-                }
-            }
-
-//
-//            for(i=0;i<lis.length;i++)
-//            {
-//                for(j=0;j<3;j++)
-//                {
-//                    bh++;
-//                    stmt.setString(bh,lis[i]);
-//                }
-//            }
-
-            if(identity.equals("USER"))
-            {
-                bh++;
-                stmt.setTimestamp(bh,nowtime);
-                bh++;
-                stmt.setLong(bh,mid);
-            }
-
-
-
-
-
-            bh++;
-            stmt.setInt(bh,pageSize*(pageNum-1));
-            bh++;
-            stmt.setInt(bh,pageSize);
-
-            //System.out.println("check sql sentence:  "+stmt);
-            rst=stmt.executeQuery();
-
-            List<String> list=new ArrayList<String>();
-            while(rst.next())
-            {
-                list.add(rst.getString("bv"));
-            }
-            conn.close();stmt.close();
-            return list;
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        Optional<Page> page = Page.of(pageSize, pageNum);
+        if (me.isEmpty() || Strings.isNullOrEmpty(keywords) || page.isEmpty()) {
+            return null;
         }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
+        String[] words = splitKeywords(keywords);
+        if (words.length == 0) {
+            return List.of();
         }
-
+        MapSqlParameterSource params = VideoVisibility.bind(me.get(), now())
+                .addValue("keywords", SqlArrays.textArray(words))
+                .addValue("limit", page.get().size())
+                .addValue("offset", page.get().offset());
+        return jdbc.queryForList(SEARCH, params, String.class);
     }
 
     @Override
-    //video viewrate 'BV1wd4y1G7Rd'
-    public double getAverageViewRate(String bv)
-    {
-        try {
-            String sql,identity;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            double viewtime,duration;
-            sql="select sum(viewtime) as tottime,count(*) as tot from viewers where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            rst.next();
-            if(rst.getInt("tot")==0)
-            {
-                conn.close();stmt.close();
-                return -1;
-            }
-            viewtime=rst.getDouble("tottime")/rst.getDouble("tot");
-            sql="select duration from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                conn.close();stmt.close();
-                return -1;
-            }
-            duration=rst.getDouble("duration");
-            conn.close();stmt.close();
-            return viewtime/duration;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+    public double getAverageViewRate(String bv) {
+        return jdbc.queryForList(AVERAGE_VIEW_RATE, new MapSqlParameterSource("bv", bv), Double.class).stream()
+                .findFirst()
+                .orElse(-1.0);
     }
 
     @Override
-    //video hotspot 'BV14r4y1i7vZ'
-    //video hotspot 'BV187411H782'
     public Set<Integer> getHotspot(String bv) {
-        try {
-            String sql, identity;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            Set<Integer> st=new HashSet<Integer>();
-            sql="select time from danmus where bv=? order by time ";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            //System.out.println("check sql: "+stmt);
-
-            int i,cnt=0,now,las=-1,vmx=0;
-            double tim;
-            //System.out.println("check point 1");
-            while(rst.next())
-            {
-                tim=rst.getDouble("time");
-                now=(int)Math.floor(tim/10.0);
-                //System.out.println("time:"+tim+" now:"+now);
-                if(now==las)
-                {
-                    cnt++;
-                }
-                else
-                {
-                    vmx=Math.max(vmx,cnt);
-                    las=now;
-                    cnt=1;
-                }
-            }
-            vmx=Math.max(vmx,cnt);
-            if(las==-1)
-            {
-                conn.close();stmt.close();
-                return st;
-            }
-            //System.out.println("check point 2");
-
-            rst=stmt.executeQuery();
-            cnt=0;
-            while(rst.next())
-            {
-                tim=rst.getDouble("time");
-                now=(int)Math.floor(tim/10.0);
-
-                if(now==las)
-                {
-                    cnt++;
-                }
-                else
-                {
-                    if(cnt==vmx) st.add(las);
-                    las=now;
-                    cnt=1;
-                }
-            }
-            if(cnt==vmx) st.add(las);
-           // System.out.println("check vmx:"+vmx);
-            conn.close();stmt.close();
-            return st;
-
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-
+        MapSqlParameterSource params =
+                new MapSqlParameterSource().addValue("bv", bv).addValue("chunk", HOTSPOT_CHUNK_SECONDS);
+        return new HashSet<>(jdbc.queryForList(HOTSPOTS, params, Integer.class));
     }
 
     @Override
-    //video review 1966193 '' '' ''  'BV1ki0F1Wnyn'
     public boolean reviewVideo(AuthInfo auth, String bv) {
-        try (Connection conn = dataSource.getConnection()) {
-            long mid = AuthHelper.resolveMid(auth, conn);
-            if (mid == AuthHelper.INVALID_MID || !AuthHelper.isSuperuser(mid, conn)) {
-                return false;
-            }
-            // Only an unreviewed video owned by someone else can be reviewed.
-            // Doing the checks in the UPDATE itself keeps concurrent reviews from both succeeding.
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "update videos set reviewTime = ?, reviewer = ? where bv = ? and reviewTime is null and ownerMid <> ?")) {
-                stmt.setTimestamp(1, Timestamp.from(Instant.now()));
-                stmt.setLong(2, mid);
-                stmt.setString(3, bv);
-                stmt.setLong(4, mid);
-                return stmt.executeUpdate() == 1;
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || !me.get().superuser() || bv == null) {
+            return false;
         }
-
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("bv", bv)
+                .addValue("me", me.get().mid())
+                .addValue("now", now());
+        return jdbc.update(REVIEW_VIDEO, params) == 1;
     }
 
-
-
     @Override
-    //video coin 2138 '' '' ''  'BV1ki0F1Wnyn'
     public boolean coinVideo(AuthInfo auth, String bv) {
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || bv == null) {
+            return false;
+        }
         try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            Long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return false;
-            }
-            String identity=AuthHelper.getIdentity(mid,conn);
-            if(chkCanNotSearchOrIsOwner(mid,identity,bv,conn))
-            {
-                conn.close();
-                return false;
-            }
-            //System.out.println("check point 0");
-
-            sql="select coin from users where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            rst=stmt.executeQuery();
-            rst.next();
-            if(rst.getInt("coin")<=0)
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-            int nowcoin=rst.getInt("coin");
-
-
-            //System.out.println("check point 1");
-
-            sql="select * from coins where bv=? and mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-            if(rst.next())
-            {
-                conn.close();stmt.close();
-                return false;
-            }
-
-            //System.out.println("check point 2");
-
-
-
-            sql="insert into coins values(?,?)";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setLong(2,mid);
-            stmt.execute();
-
-            //System.out.println("check point 3");
-
-            sql="update users set coin=? where mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setInt(1,nowcoin-1);
-            stmt.setLong(2,mid);
-            stmt.execute();
-            conn.close();stmt.close();
-            return true;
+            return jdbc.update(
+                            DONATE_COIN, VideoVisibility.bind(me.get(), now()).addValue("bv", bv))
+                    == 1;
+        } catch (DuplicateKeyException e) {
+            // A concurrent donation by the same user to the same video won; nothing was charged.
+            return false;
         }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-
     }
 
     @Override
-    //video like 2138 '' '' ''  'BV1ki0F1Wnyn'
     public boolean likeVideo(AuthInfo auth, String bv) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return false;
-            }
-            String identity=AuthHelper.getIdentity(mid,conn);
-            if(chkCanNotSearchOrIsOwner(mid,identity,bv,conn))
-            {
-                conn.close();
-                return false;
-            }
-
-            sql="select * from videolikes where bv=? and mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-
-            boolean havliked=false;
-            if(rst.next()) havliked=true;
-
-            if(havliked)
-            {
-                sql="delete from videolikes where bv=? and mid=?";
-                stmt = conn.prepareStatement(sql);
-                stmt.setString(1,bv);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return false;
-            }
-            else {
-                sql="insert into videolikes values(?,?)";
-                stmt = conn.prepareStatement(sql);
-                stmt.setString(1,bv);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return true;
-            }
-
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-
+        return toggle(TOGGLE_LIKE, auth, bv);
     }
 
     @Override
-    //video collect 2138 '' '' ''  'BV1ki0F1Wnyn'
     public boolean collectVideo(AuthInfo auth, String bv) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return false;
-            }
-            String identity=AuthHelper.getIdentity(mid,conn);
-            if(chkCanNotSearchOrIsOwner(mid,identity,bv,conn))
-            {
-                conn.close();
-                return false;
-            }
+        return toggle(TOGGLE_FAVORITE, auth, bv);
+    }
 
-            sql="select * from favorites where bv=? and mid=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-
-            boolean havcollected=false;
-            if(rst.next()) havcollected=true;
-
-            if(havcollected)
-            {
-                sql="delete from favorites where bv=? and mid=?";
-                stmt = conn.prepareStatement(sql);
-                stmt.setString(1,bv);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return false;
-            }
-            else {
-                sql="insert into favorites values(?,?)";
-                stmt = conn.prepareStatement(sql);
-                stmt.setString(1,bv);
-                stmt.setLong(2,mid);
-                stmt.execute();
-                conn.close();stmt.close();
-                return true;
-            }
-
+    private boolean toggle(String sql, AuthInfo auth, String bv) {
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        if (me.isEmpty() || bv == null) {
+            return false;
         }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
+        MapSqlParameterSource params = VideoVisibility.bind(me.get(), now()).addValue("bv", bv);
+        return Boolean.TRUE.equals(jdbc.queryForObject(sql, params, Boolean.class));
+    }
+
+    /** The checks shared by postVideo and updateVideoInfo. */
+    private static boolean isValid(PostVideoReq req, Timestamp now) {
+        return req != null
+                && !Strings.isNullOrEmpty(req.getTitle())
+                && req.getDuration() >= MIN_DURATION_SECONDS
+                && req.getPublicTime() != null
+                && !req.getPublicTime().before(now);
+    }
+
+    /** Keywords are separated by spaces; runs of spaces do not produce empty keywords. */
+    static String[] splitKeywords(String keywords) {
+        return Arrays.stream(keywords.split(" ")).filter(w -> !w.isEmpty()).toArray(String[]::new);
+    }
+
+    private static String newBv() {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        StringBuilder sb = new StringBuilder(BV_PREFIX.length() + BV_RANDOM_LENGTH).append(BV_PREFIX);
+        for (int i = 0; i < BV_RANDOM_LENGTH; i++) {
+            sb.append(BV_ALPHABET.charAt(random.nextInt(BV_ALPHABET.length())));
         }
+        return sb.toString();
+    }
+
+    private Timestamp now() {
+        return Timestamp.from(clock.instant());
     }
 }

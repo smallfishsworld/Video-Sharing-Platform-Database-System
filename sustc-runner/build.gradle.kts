@@ -8,6 +8,9 @@ plugins {
     alias(libs.plugins.lombok)
 }
 
+// Keep the JDBC driver version in line with sustc-api (see the note there).
+extra["postgresql.version"] = libs.versions.postgresql.get()
+
 dependencies {
     implementation(
         fileTree("$rootDir/submit").matching { include("*.jar") }
@@ -44,4 +47,5 @@ tasks.withType<BootJar> {
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
+    options.release = 17
 }

@@ -2,268 +2,180 @@ package io.sustc.service.impl;
 
 import io.sustc.dto.AuthInfo;
 import io.sustc.service.RecommenderService;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import io.sustc.service.impl.auth.Authenticator;
+import io.sustc.service.impl.auth.CurrentUser;
+import io.sustc.service.impl.support.Page;
+import io.sustc.service.impl.support.SqlArrays;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
-import java.sql.*;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-
 @Service
-@Slf4j
 public class RecommenderServiceImpl implements RecommenderService {
-    @Autowired
-    private DataSource dataSource;
-    boolean chkCanNotFindVideo(String bv,Connection conn)
-    {
-        try {
-            String sql;
-            PreparedStatement stmt;
-            ResultSet rst;
-            sql="select * from videos where bv=?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            rst=stmt.executeQuery();
-            if(!rst.next())
-            {
-                stmt.close();
-                return true;
-            }
-            stmt.close();
-            return false;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+    static final int SIMILAR_VIDEOS = 5;
+
+    /**
+     * One row (the top bvs, possibly none) if the video exists, no row otherwise. Similarity is
+     * the number of users who watched both videos; ties are broken by bv.
+     */
+    private static final String SIMILAR =
+            """
+            select array(
+                select o.bv
+                from viewers mine
+                join viewers o on o.mid = mine.mid and o.bv <> mine.bv
+                where mine.bv = v.bv
+                group by o.bv
+                order by count(*) desc, o.bv
+                limit :limit)
+            from videos v
+            where v.bv = :bv
+            """;
+
+    /**
+     * score = like + coin + fav + danmu + finish, each relative to the number of viewers. The
+     * three rates are clamped to 1 because users can interact without watching; a video nobody
+     * watched scores 0. Each table is aggregated once instead of once per video.
+     */
+    private static final String GENERAL =
+            """
+            with watched as (select bv, count(*)::double precision as n, avg(view_time) as avg_time
+                             from viewers group by bv),
+                 liked as (select bv, count(*) as n from videolikes group by bv),
+                 donated as (select bv, count(*) as n from coins group by bv),
+                 collected as (select bv, count(*) as n from favorites group by bv),
+                 commented as (select bv, count(*) as n from danmus group by bv)
+            select v.bv
+            from videos v
+            left join watched w on w.bv = v.bv
+            left join liked l on l.bv = v.bv
+            left join donated c on c.bv = v.bv
+            left join collected f on f.bv = v.bv
+            left join commented d on d.bv = v.bv
+            order by coalesce(least(coalesce(l.n, 0) / w.n, 1)
+                            + least(coalesce(c.n, 0) / w.n, 1)
+                            + least(coalesce(f.n, 0) / w.n, 1)
+                            + coalesce(d.n, 0) / w.n
+                            + w.avg_time / v.duration, 0) desc,
+                     v.bv
+            limit :limit offset :offset
+            """;
+
+    /**
+     * Videos watched by friends (users who follow the current user and are followed back), not
+     * watched by the current user, ranked by the number of such friends, the owner's level and
+     * the public time (newest first, videos without one last), then by bv for stable pages.
+     */
+    private static final String FOR_USER =
+            """
+            with friends as (
+                select f.followee_mid as mid
+                from followings f
+                join followings back on back.follower_mid = f.followee_mid and back.followee_mid = f.follower_mid
+                where f.follower_mid = :me
+            )
+            select w.bv
+            from friends fr
+            join viewers w on w.mid = fr.mid
+            join videos v on v.bv = w.bv
+            join users owner on owner.mid = v.owner_mid
+            where not exists (select 1 from viewers mine where mine.bv = w.bv and mine.mid = :me)
+            group by w.bv, owner.level, v.public_time
+            order by count(*) desc, owner.level desc, v.public_time desc nulls last, w.bv
+            limit :limit offset :offset
+            """;
+
+    /** Whether the current user has any interest at all; asked only when a page came back empty. */
+    private static final String HAS_INTEREST =
+            """
+            select exists (
+                select 1
+                from followings f
+                join followings back on back.follower_mid = f.followee_mid and back.followee_mid = f.follower_mid
+                join viewers w on w.mid = f.followee_mid
+                where f.follower_mid = :me
+                  and not exists (select 1 from viewers mine where mine.bv = w.bv and mine.mid = :me))
+            """;
+
+    /**
+     * Users not followed by the current user (and not the user), ranked by the number of
+     * followees they share with the current user, then by level (desc) and mid.
+     */
+    private static final String FRIENDS =
+            """
+            select c.mid
+            from (select o.follower_mid as mid, count(*) as common
+                  from followings mine
+                  join followings o on o.followee_mid = mine.followee_mid
+                  where mine.follower_mid = :me
+                    and o.follower_mid <> :me
+                    and not exists (select 1 from followings x
+                                    where x.follower_mid = :me and x.followee_mid = o.follower_mid)
+                  group by o.follower_mid) c
+            join users u on u.mid = c.mid
+            order by c.common desc, u.level desc, c.mid
+            limit :limit offset :offset
+            """;
+
+    private final NamedParameterJdbcTemplate jdbc;
+    private final Authenticator authenticator;
+
+    public RecommenderServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator) {
+        this.jdbc = jdbc;
+        this.authenticator = authenticator;
     }
+
     @Override
-    //rec video 'BV1XP4y1T7zz'
     public List<String> recommendNextVideo(String bv) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            if(chkCanNotFindVideo(bv,conn))
-            {
-                conn.close();
-                return null;
-            }
-            List<String> list=new ArrayList<String>();
-            sql="select a.bv,count(b.mid) as cnt from viewers a inner join viewers b on a.mid=b.mid where b.bv=? and a.bv !=? group by a.bv order by cnt desc limit 5";
-            stmt = conn.prepareStatement(sql);
-            stmt.setString(1,bv);
-            stmt.setString(2,bv);
-            rst=stmt.executeQuery();
-            while(rst.next())
-            {
-                list.add(rst.getString("bv"));
-            }
-            conn.close();stmt.close();
-            return list;
+        if (bv == null) {
+            return null;
         }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-
+        MapSqlParameterSource params =
+                new MapSqlParameterSource().addValue("bv", bv).addValue("limit", SIMILAR_VIDEOS);
+        List<List<String>> rows = jdbc.query(SIMILAR, params, (rs, i) -> SqlArrays.toStringList(rs.getArray(1)));
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     @Override
-    //rec general 100 1
     public List<String> generalRecommendations(int pageSize, int pageNum) {
-        try {
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            //System.out.println("check point 1");
-            if(pageSize<=0||pageNum<=0)
-            {
-                conn.close();
-                return null;
-            }
-            List<String> list=new ArrayList<String>();
+        return Page.of(pageSize, pageNum).map(this::general).orElse(null);
+    }
 
-
-
-//            sql="create or replace function qmin(x numeric,y numeric) returns numeric as\n" +
-//                    "$$\n" +
-//                    "    begin\n" +
-//                    "    if x<=y then return  x;\n" +
-//                    "        else  return y;\n" +
-//                    "       end if;\n" +
-//                    "    end\n" +
-//                    "$$ language plpgsql;";
-//            stmt = conn.prepareStatement(sql);
-//            stmt.execute();
-
-            //System.out.println("check point 2");
-
-            sql="select\n" +
-                    "        a.bv,\n" +
-                    "        case views when 0 then 0\n" +
-                    "        else\n" +
-                    "        qmin(cast(b.lik as numeric)/cast(a.views as numeric),1.0)+\n" +
-                    "        qmin(cast(c.coi as numeric)/cast(a.views as numeric),1.0)+\n" +
-                    "        qmin(cast(d.fav as numeric)/cast(a.views as numeric),1.0)+\n" +
-                    "        qmin(cast(e.dan as numeric)/cast(a.views as numeric),1.0)+\n" +
-                    "        qmin(cast(a.avgviewtime/a.duration as numeric),1.0)\n" +
-                    "        end as score\n" +
-                    "from\n" +
-                    "(select v.bv,v.duration ,count(r.mid) as views,sum(viewtime)/count(*) as avgviewtime from videos v left join viewers r on v.bv=r.bv group by v.bv,v.duration) a\n" +
-                    "inner join (select v.bv,count(r.mid) as lik from videos v left join videolikes r on v.bv=r.bv group by v.bv) b on a.bv=b.bv\n" +
-                    "inner join (select v.bv,count(r.mid) as coi from videos v left join coins r on v.bv=r.bv group by v.bv) c on a.bv=c.bv\n" +
-                    "inner join (select v.bv,count(r.mid) as fav from videos v left join favorites r on v.bv=r.bv group by v.bv)d on a.bv=d.bv\n" +
-                    "inner join (select v.bv,count(r.mid) as dan from videos v left join danmus r on v.bv=r.bv group by v.bv)e on a.bv=e.bv order by score desc ";
-            sql=sql+" offset ? limit ?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setInt(1,pageSize*(pageNum-1));
-            stmt.setInt(2,pageSize);
-            //System.out.println("check point 3");
-            rst=stmt.executeQuery();
-            while(rst.next()){
-                list.add(rst.getString("bv"));
-            }
-            //System.out.println("check point !");
-            conn.close();stmt.close();
-            return list;
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+    private List<String> general(Page page) {
+        return jdbc.queryForList(GENERAL, pageParams(page), String.class);
     }
 
     @Override
-    //rec user 682265 '' '' '' 100 1
     public List<String> recommendVideosForUser(AuthInfo auth, int pageSize, int pageNum) {
-        try{
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            List<String> list=new ArrayList<String>();
-            long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return null;
-            }
-            if(pageSize<=0||pageNum<=0)
-            {
-                conn.close();
-                return null;
-            }
-
-
-//            sql="select v.bv,t.cnt,u.level,u.mid,u.name,v.publictime from videos v inner join\n" +
-//                    "(select r.bv,count(f.mid2) as cnt from\n" +
-//                    "(select a.mid2 from followings a inner join  followings b on a.mid1=b.mid2 and a.mid2=b.mid1 where a.mid1= ? ) f\n" +
-//                    "inner join viewers r\n" +
-//                    "    on f.mid2=r.mid group by r.bv) t\n" +
-//                    "on v.bv=t.bv\n" +
-//                    "inner join users u on v.ownermid=u.mid\n" +
-//                    "                  order by t.cnt desc,u.level desc,v.publictime desc";
-
-
-            sql="select v.bv,t.cnt,u.level,u.mid,u.name,v.publictime,vie.viewtime,vie.mid as chkmid from videos v inner join\n" +
-                    "(select r.bv,count(f.mid2) as cnt from\n" +
-                    "(select a.mid2 from followings a inner join  followings b on a.mid1=b.mid2 and a.mid2=b.mid1 where a.mid1=?) f\n" +
-                    "inner join viewers r\n" +
-                    "    on f.mid2=r.mid group by r.bv) t\n" +
-                    "on v.bv=t.bv\n" +
-                    "inner join users u on v.ownermid=u.mid\n" +
-                    "left join viewers vie on vie.mid=? and v.bv=vie.bv\n" +
-                    "                  order by t.cnt desc,u.level desc,v.publictime desc;";
-
-
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.setLong(2,mid);
-            rst=stmt.executeQuery();
-            int cnt=0;
-            while(rst.next())
-            {
-                //System.out.println("chkmid "+rst.getLong("chkmid"));
-                if(rst.getLong("chkmid")==0)
-                {
-                    cnt++;
-                    if(cnt>pageSize*(pageNum-1)&&cnt<=pageSize*pageNum)
-                    {
-                        list.add(rst.getString("bv"));
-                    }
-                }
-
-            }
-
-            if(cnt==0)
-            {
-                conn.close();stmt.close();
-                return generalRecommendations(pageSize,pageNum);
-            }
-            conn.close();stmt.close();
-            return list;
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        Optional<Page> page = Page.of(pageSize, pageNum);
+        if (me.isEmpty() || page.isEmpty()) {
+            return null;
         }
+        MapSqlParameterSource params =
+                pageParams(page.get()).addValue("me", me.get().mid());
+        List<String> result = jdbc.queryForList(FOR_USER, params, String.class);
+        if (result.isEmpty() && !Boolean.TRUE.equals(jdbc.queryForObject(HAS_INTEREST, params, Boolean.class))) {
+            return general(page.get());
+        }
+        return result;
     }
 
     @Override
-    //rec friends 614824 '' '' '' 100 1000
     public List<Long> recommendFriends(AuthInfo auth, int pageSize, int pageNum) {
-        try{
-            String sql;
-            Connection conn = dataSource.getConnection();
-            PreparedStatement stmt;
-            ResultSet rst;
-            long mid=AuthHelper.resolveMid(auth,conn);
-            if(mid==-1)
-            {
-                conn.close();
-                return null;
-            }
-            if(pageSize<=0||pageNum<=0)
-            {
-                conn.close();
-                return null;
-            }
-
-            sql="select s.mid1,s.cnt,u.level from\n" +
-                    "(select t.mid1,h.mid2 as chkmid,t.cnt from\n" +
-                    "(select b.mid1,count(*) as cnt from followings a\n" +
-                    "inner join followings b on a.mid2=b.mid2 where a.mid1=? and b.mid1!=? group by b.mid1) t\n" +
-                    "    left join followings h on h.mid1=? and h.mid2=t.mid1) s\n" +
-                    "inner join  users u on s.mid1=u.mid where s.chkmid is null order by s.cnt desc,u.level desc,s.mid1 ";
-            sql=sql+" offset ? limit ?;";
-
-//            sql="select s.mid1,s.cnt,u.level from\n" +
-//                    "(select t.mid1,h.mid2 as chkmid,t.cnt from\n" +
-//                    "(select b.mid1,count(*) as cnt from followings a\n" +
-//                    "inner join followings b on a.mid2=b.mid2 where a.mid1=? and b.mid1!=? group by b.mid1) t\n" +
-//                    "    left join followings h on h.mid1=? and h.mid2=t.mid1) s\n" +
-//                    "inner join  users u on s.mid1=u.mid where s.chkmid is null order by s.cnt desc,u.level desc ";
-//            sql=sql+" offset ? limit ?";
-            stmt = conn.prepareStatement(sql);
-            stmt.setLong(1,mid);
-            stmt.setLong(2,mid);
-            stmt.setLong(3,mid);
-            stmt.setInt(4,pageSize*(pageNum-1));
-            stmt.setInt(5,pageSize);
-            rst=stmt.executeQuery();
-            List<Long> list=new ArrayList<Long>();
-            while(rst.next())
-            {
-                list.add(rst.getLong("mid1"));
-            }
-            conn.close();stmt.close();
-            return list;
-
-        }catch (SQLException e) {
-            throw new RuntimeException(e);
+        Optional<CurrentUser> me = authenticator.authenticate(auth);
+        Optional<Page> page = Page.of(pageSize, pageNum);
+        if (me.isEmpty() || page.isEmpty()) {
+            return null;
         }
+        return jdbc.queryForList(
+                FRIENDS, pageParams(page.get()).addValue("me", me.get().mid()), Long.class);
+    }
 
+    private static MapSqlParameterSource pageParams(Page page) {
+        return new MapSqlParameterSource().addValue("limit", page.size()).addValue("offset", page.offset());
     }
 }
