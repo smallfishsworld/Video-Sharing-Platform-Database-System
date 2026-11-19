@@ -125,12 +125,16 @@ create function fold_case(t text) returns text
 -- its rows in key order, so two firings of one trigger lock the counters they share in the same
 -- order. That order holds within one firing only: a DELETE that cascades fires one trigger per
 -- cascaded table, each locking its own counters, so two cascading deletes that ran at the same
--- time could lock shared counters in crossing orders and deadlock. The services therefore never
--- run two deletions that can cross: deleteAccount takes an exclusive advisory lock before it
--- deletes and deleteVideo a shared one (support/Writes.java). Deleting a video changes no counter
--- of another video; two video deletions share only the co-view rows between the two videos,
--- which derived_videos deletes in key order. Writes other than deletions lock one counter row
--- each, after the rows they insert or delete and the rows their foreign-key checks lock.
+-- time could lock shared counters in crossing orders and deadlock. The services therefore take an
+-- advisory deletion lock first (support/Writes.java): deleteVideo in shared mode, deleteAccount in
+-- exclusive mode. An account with no interactions, videos or follow rows has nothing that another
+-- deletion's cascade could take in the opposite order, and its deletion skips the lock; it then
+-- relies on the services' deadlock retry if the user commits an interaction between the check and
+-- the cascade, a retry that does not exist inside a caller's transaction. Deleting a video
+-- changes no counter of another video; two video deletions share only the co-view rows between
+-- the two videos, which derived_videos deletes in key order. Writes other than deletions lock one
+-- counter row each, after the rows they insert or delete and the rows their foreign-key checks
+-- lock.
 --
 -- TRUNCATE fires no row triggers: truncate the derived tables together with their sources (the
 -- service's truncate() truncates every table). BulkImporter drops the derived_* triggers while it

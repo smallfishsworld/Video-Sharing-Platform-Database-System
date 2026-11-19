@@ -48,7 +48,7 @@ public class UserServiceImpl implements UserService {
      * users. The foreign keys cascade, so this single statement also removes the user's videos
      * (with every interaction on them), danmus, follow relations and interaction records. It runs
      * after {@link Writes#LOCK_DELETIONS_EXCLUSIVE}, so no other deletion runs at the same time
-     * unless the account has no interactions.
+     * unless the account has no interactions, videos or follow rows.
      */
     private static final String DELETE_USER = Writes.LOCK_DELETIONS_EXCLUSIVE
             + """

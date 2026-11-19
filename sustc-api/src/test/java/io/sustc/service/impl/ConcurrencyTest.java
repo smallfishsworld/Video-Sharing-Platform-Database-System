@@ -373,25 +373,82 @@ class ConcurrencyTest extends IntegrationTest {
             }
         }
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
-        jdbc.execute(
-                """
-                create function test_slow_delete() returns trigger language plpgsql as
-                $$ begin perform pg_sleep(0.2); return old; end $$
-                """);
-        jdbc.execute("create trigger test_slow_delete before delete on video_coviews"
-                + " for each row execute function test_slow_delete()");
-        List<Boolean> results;
-        try {
-            results = concurrently(List.of(
-                    () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(0))),
-                    () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(1)))));
-        } finally {
-            jdbc.execute("drop trigger test_slow_delete on video_coviews");
-            jdbc.execute("drop function test_slow_delete()");
-        }
+
+        List<Boolean> results = withSlowRowDeletes(
+                "video_coviews",
+                List.of(
+                        () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(0))),
+                        () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(1)))));
 
         assertThat(results).containsExactly(true, true);
         DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
+     * Two freshly registered accounts that follow each other, deleted at once inside callers'
+     * transactions. Neither has interactions or videos, but each deletion cascades into both
+     * followings rows between them, through the follower key and then through the followee key, so
+     * the two cascades take the two rows in crossing orders. A test trigger makes every followings
+     * deletion take 200 ms, so both deletions are inside their first cascade at the same time.
+     * Without the deletion lock they deadlocked; their follow rows make both take it, and the
+     * second deletion waits for the first transaction.
+     */
+    @Test
+    void mutuallyFollowingNewAccountsDeletedInCallerTransactionsNeverDeadlock() throws Exception {
+        long a = fx.user("a");
+        long b = fx.user("b");
+        fx.follow(a, b);
+        fx.follow(b, a);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        List<Boolean> results = withSlowRowDeletes(
+                "followings",
+                List.of(
+                        () -> tx.execute(status -> users.deleteAccount(fx.auth(a), a)),
+                        () -> tx.execute(status -> users.deleteAccount(fx.auth(b), b))));
+
+        assertThat(results).containsExactly(true, true);
+        assertThat(count("select count(*) from users where mid in (?, ?)", a, b))
+                .isZero();
+        assertThat(count("select count(*) from followings")).isZero();
+    }
+
+    /**
+     * A deletion that the caller may not make returns false without taking the deletion lock, so it
+     * holds up no other deletion; one that the caller may make holds the lock until its
+     * transaction ends.
+     */
+    @Test
+    void onlyPermittedDeletionsTakeTheDeletionLock() {
+        long owner = fx.user("owner");
+        long stranger = fx.user("stranger");
+        String bv = fx.video(owner, "v");
+        fx.like(fx.video(owner, "kept"), owner);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        // Each value is the number of deletion locks held after the call, or -1 if the call
+        // returned the other result than expected.
+        Long refusedAccount =
+                tx.execute(status -> users.deleteAccount(fx.auth(stranger), owner) ? -1L : heldDeletionLocks());
+        Long refusedVideo = tx.execute(status -> videos.deleteVideo(fx.auth(stranger), bv) ? -1L : heldDeletionLocks());
+        Long deletedVideo = tx.execute(status -> videos.deleteVideo(fx.auth(owner), bv) ? heldDeletionLocks() : -1L);
+        Long deletedAccount =
+                tx.execute(status -> users.deleteAccount(fx.auth(owner), owner) ? heldDeletionLocks() : -1L);
+
+        assertThat(refusedAccount).isZero();
+        assertThat(refusedVideo).isZero();
+        assertThat(deletedVideo).isEqualTo(1L);
+        assertThat(deletedAccount).isEqualTo(1L);
+    }
+
+    /** The deletion locks (advisory lock (1, 0), either mode) held by this transaction's session. */
+    private long heldDeletionLocks() {
+        return count(
+                """
+                select count(*) from pg_locks
+                where locktype = 'advisory' and pid = pg_backend_pid()
+                  and classid = 1 and objid = 0 and objsubid = 2 and granted
+                """);
     }
 
     private void interact(String table, String bv, long mid) {
@@ -480,6 +537,23 @@ class ConcurrencyTest extends IntegrationTest {
                 String.class,
                 one,
                 other);
+    }
+
+    /** Runs the calls at once while a test trigger makes every row deletion in {@code table} take 200 ms. */
+    private <T> List<T> withSlowRowDeletes(String table, List<Callable<T>> calls) throws Exception {
+        jdbc.execute(
+                """
+                create function test_slow_delete() returns trigger language plpgsql as
+                $$ begin perform pg_sleep(0.2); return old; end $$
+                """);
+        jdbc.execute("create trigger test_slow_delete before delete on " + table
+                + " for each row execute function test_slow_delete()");
+        try {
+            return concurrently(calls);
+        } finally {
+            jdbc.execute("drop trigger test_slow_delete on " + table);
+            jdbc.execute("drop function test_slow_delete()");
+        }
     }
 
     private static <T> List<T> whileGated(Gate gate, int copies, Callable<T> call) throws Exception {

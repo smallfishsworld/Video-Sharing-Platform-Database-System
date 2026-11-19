@@ -62,40 +62,58 @@ public final class Writes {
     public static final String LOCK_ACTING_USER = "select pg_advisory_xact_lock(:me);\n";
 
     /**
-     * The first statement of the deletion of account {@code :target}: the deletion lock (two-key
-     * advisory lock (1, 0), whose key space is separate from the one-key locks of {@link
-     * #LOCK_ACTING_USER}) in exclusive mode, held until the deletion commits.
+     * The first statement of the deletion of account {@code :target} by the caller {@code :me}:
+     * the deletion lock (two-key advisory lock (1, 0), whose key space is separate from the
+     * one-key locks of {@link #LOCK_ACTING_USER}) in exclusive mode, held until the deletion
+     * commits. It is taken only if the caller may delete the account, by the same condition as the
+     * DELETE that follows ({@code :superuser}, {@code :regularIdentity}), so a refused call does
+     * not hold up other deletions.
      *
      * <p>A deletion cascades table by table, and the derived-table trigger of each cascaded table
      * locks the counters of its own videos (sql/build.sql). Two account deletions, or an account
      * deletion and a video deletion, could therefore lock shared counters in crossing orders and
-     * deadlock; on the benchmark data, where the median account has viewed 23 of the 44 videos,
-     * 8 concurrent account deletions failed on 79 to 83 of 100 calls in round 2. With this lock
-     * they run one after the other.
+     * deadlock: without this lock, 8 concurrent deletions of accounts from the benchmark data
+     * (where the median account has viewed 23 of the 44 videos) failed with a deadlock on 79 to
+     * 87 of 100 calls per run, even after 3 attempts. With this lock they run one after the other.
      *
-     * <p>An account with no views, likes, coins, favorites, danmus or videos changes no derived
-     * row, so its deletion skips the lock: deleting freshly registered accounts (the benchmark
-     * deletes its registered users on a parallel stream) stays concurrent. An interaction that
-     * such a user commits between this check and the deletion's cascade is deleted without the
-     * lock; the deadlock retry of {@link #run} covers that window.
+     * <p>An account with no views, likes, coins, favorites, danmus, videos or follow rows changes
+     * no derived row and shares no row with another account's cascade (two accounts that follow
+     * each other share two followings rows, which their cascades would take in crossing orders),
+     * so its deletion skips the lock: deleting freshly registered accounts (the benchmark deletes
+     * its registered users on a parallel stream) stays concurrent. Such a deletion depends on the
+     * deadlock retry of {@link #run}: an interaction that the user commits between this check and
+     * the cascade is deleted without the lock. Inside a caller's transaction there is no retry,
+     * so the caller must retry its transaction if that rare deadlock happens.
      */
     public static final String LOCK_DELETIONS_EXCLUSIVE =
             """
             select pg_advisory_xact_lock(1, 0)
-            where exists (select 1 from viewers where mid = :target)
-               or exists (select 1 from videolikes where mid = :target)
-               or exists (select 1 from coins where mid = :target)
-               or exists (select 1 from favorites where mid = :target)
-               or exists (select 1 from danmus where mid = :target)
-               or exists (select 1 from videos where owner_mid = :target);
+            from users u
+            where u.mid = :target
+              and (u.mid = :me or (:superuser and u.identity = :regularIdentity))
+              and (exists (select 1 from viewers where mid = :target)
+                   or exists (select 1 from videolikes where mid = :target)
+                   or exists (select 1 from coins where mid = :target)
+                   or exists (select 1 from favorites where mid = :target)
+                   or exists (select 1 from danmus where mid = :target)
+                   or exists (select 1 from videos where owner_mid = :target)
+                   or exists (select 1 from followings where follower_mid = :target)
+                   or exists (select 1 from followings where followee_mid = :target));
             """;
 
     /**
-     * The first statement of a video deletion: the deletion lock in shared mode. Video deletions
-     * run concurrently with each other (they change no counter of another video, and the co-view
-     * rows they share are deleted in key order), but not with account deletions.
+     * The first statement of the deletion of video {@code :bv} by the caller {@code :me}: the
+     * deletion lock in shared mode, taken only if the caller may delete the video (the same
+     * condition as the DELETE that follows). Video deletions run concurrently with each other
+     * (they change no counter of another video, and the co-view rows they share are deleted in key
+     * order), but not with account deletions.
      */
-    public static final String LOCK_DELETIONS_SHARED = "select pg_advisory_xact_lock_shared(1, 0);\n";
+    public static final String LOCK_DELETIONS_SHARED =
+            """
+            select pg_advisory_xact_lock_shared(1, 0)
+            from videos
+            where bv = :bv and (:superuser or owner_mid = :me);
+            """;
 
     /**
      * Executes a call made of {@link #LOCK_ACTING_USER} and one statement that returns a single
