@@ -541,8 +541,10 @@ public final class WriteBench {
             }
             if (m.startsWith(" FE=> Parse")) {
                 parse.incrementAndGet();
-                Object[] p = r.getParameters();
-                String q = p != null && p.length > 1 ? String.valueOf(p[1]) : "?";
+                // pgjdbc 42.3 and 42.7 both log " FE=> Parse(stmt=S,query=\"SQL\",oids={...})".
+                int from = m.indexOf(",query=\"");
+                int to = m.lastIndexOf("\",oids={");
+                String q = from >= 0 && to > from ? m.substring(from + 8, to) : "?";
                 q = q.strip().replaceAll("\\s+", " ");
                 q = q.length() > 60 ? q.substring(0, 60) : q;
                 synchronized (statements) {
