@@ -18,6 +18,9 @@ build/
 
 ### Logs ###
 *.log
+# The raw logs next to the benchmark reports and experiments are part of the record.
+!docs/benchmark/**/*.log
+!docs/experiments/*.log
 
 ### Benchmark data and reports (too large for git) ###
 /sustc-runner/data/**/*.ser
