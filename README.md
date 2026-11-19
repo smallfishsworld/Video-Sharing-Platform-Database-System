@@ -272,6 +272,7 @@ Requirements: JDK 17 or 21, Docker (for the tests and, optionally, the database)
 
 # A database for the runner (postgres:16-alpine on 127.0.0.1:5432; user, password and database are all "sustc").
 # If port 5432 is taken: SUSTC_DB_PORT=55432 docker compose up -d, and PGPORT=55432 for the scripts.
+# (A benchmark run against it passed all 5,622 cases: docs/experiments/compose-quickstart.txt.)
 cd sustc-runner && docker compose up -d && cd ..
 
 # The course's test data (.ser files, not in this repository) goes to

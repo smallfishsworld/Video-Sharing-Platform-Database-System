@@ -272,6 +272,7 @@ erDiagram
 
 # 为 runner 准备数据库（127.0.0.1:5432 上的 postgres:16-alpine；用户名、密码和数据库名都是 "sustc"）
 # 端口 5432 被占用时：SUSTC_DB_PORT=55432 docker compose up -d，脚本则使用 PGPORT=55432。
+#（针对它的一次基准测试运行通过了全部 5,622 个用例：docs/experiments/compose-quickstart.txt。）
 cd sustc-runner && docker compose up -d && cd ..
 
 # 课程提供的测试数据（.ser 文件，不在本仓库中）放到
