@@ -1,11 +1,19 @@
 -- Audit log for the users table: every inserted, updated or deleted row, and every TRUNCATE, is
 -- recorded together with the database role and the transaction time.
 --
--- The log keeps no credentials. The original version of this file (commit 2e811bd, a row-level
+-- The log keeps no credentials. The 2023 version of this file (commit 2e811bd, a row-level
 -- trigger) copied password, qq and wechat into every log row; here an AuthInfo with only a qq or
 -- wechat value authenticates without a password, so those two are credentials as well, and all
--- three are left out. Logs written by the original version still hold them and must be purged
+-- three are left out. Logs written by the 2023 version still hold them and must be purged
 -- before any real deployment.
+--
+-- It is a change log, not a tamper-proof audit trail:
+--   * an UPDATE logs only the new row, not the old one;
+--   * stamp is now(), the start of the transaction, and no key orders the entries;
+--   * db_user is the role that ran the statement, and the services connect as the schema owner,
+--     so it does not name the application user;
+--   * the function runs with the rights of that role, so every role that writes users needs
+--     INSERT on log_users and can append entries of its own (see usercontrol.sql).
 --
 -- The triggers are statement-level and read the affected rows from transition tables, so a
 -- statement that touches many rows (for example the bulk import's COPY) costs one
