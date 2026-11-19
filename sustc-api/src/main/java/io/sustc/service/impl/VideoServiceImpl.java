@@ -72,13 +72,14 @@ public class VideoServiceImpl implements VideoService {
 
     /**
      * Relevance is the total number of non-overlapping, case-insensitive occurrences of every
-     * keyword in the title, description and owner name. Ties are broken by view count, then by
-     * bv so that pages are stable.
+     * keyword in the title, description and owner name. Ties are broken by view count (kept in
+     * video_stats), then by bv so that pages are stable.
      */
     private static final String SEARCH =
             """
             select v.bv
             from videos v
+            join video_stats s on s.bv = v.bv
             cross join lateral (
                 select sum(count_occurrences(lower(v.title), k.word)
                          + count_occurrences(lower(coalesce(v.description, '')), k.word)
@@ -87,18 +88,18 @@ public class VideoServiceImpl implements VideoService {
             ) r
             where r.relevance > 0
               and %s
-            order by r.relevance desc, (select count(*) from viewers w where w.bv = v.bv) desc, v.bv
+            order by r.relevance desc, s.viewers desc, v.bv
             limit :limit offset :offset
             """
                     .formatted(VideoVisibility.VISIBLE_TO_ME);
 
+    /** The mean view time over the duration, from the counters in video_stats. */
     private static final String AVERAGE_VIEW_RATE =
             """
-            select avg(w.view_time) / v.duration
+            select s.view_time_sum / s.viewers / v.duration
             from videos v
-            join viewers w on w.bv = v.bv
-            where v.bv = :bv
-            group by v.bv
+            join video_stats s on s.bv = v.bv
+            where v.bv = :bv and s.viewers > 0
             """;
 
     private static final String HOTSPOTS =

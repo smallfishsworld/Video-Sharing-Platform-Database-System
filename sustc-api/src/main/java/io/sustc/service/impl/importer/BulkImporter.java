@@ -31,14 +31,16 @@ import org.springframework.stereotype.Component;
  * Loads the benchmark dataset into an empty database.
  *
  * <ol>
- *   <li>The indexes, primary/unique constraints and foreign keys of all tables are read from the
- *       catalog and dropped ({@link DeferredSchemaObjects}).
+ *   <li>The indexes, primary/unique constraints, foreign keys and {@code derived_*} triggers of all
+ *       tables are read from the catalog and dropped ({@link DeferredSchemaObjects}).
  *   <li>Every table is loaded on its own connection with {@code TRUNCATE} + {@code COPY ...
  *       FREEZE} in one transaction. Frozen rows on all-visible pages mean index-only scans work
- *       right away, without a VACUUM pass to set the visibility map.
+ *       right away, without a VACUUM pass to set the visibility map. The derived tables
+ *       ({@code video_stats}, {@code video_coviews}) are computed from the records in memory
+ *       ({@link DerivedData}) and loaded the same way.
  *   <li>The indexes are rebuilt in parallel, largest table first, and the constraints are
  *       re-attached to them. Foreign keys are added {@code NOT VALID} and then validated, one
- *       table per task.
+ *       table per task, and the triggers are recreated.
  *   <li>{@code VACUUM (ANALYZE)} gives the planner statistics, and the identity sequences are moved
  *       past the imported ids.
  * </ol>
@@ -52,9 +54,19 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class BulkImporter {
 
-    /** Every table that the import fills. */
+    /** Every table that the import fills, including the derived tables. */
     static final List<String> TABLES = List.of(
-            "users", "followings", "videos", "viewers", "videolikes", "coins", "favorites", "danmus", "danmulikes");
+            "users",
+            "followings",
+            "videos",
+            "viewers",
+            "videolikes",
+            "coins",
+            "favorites",
+            "danmus",
+            "danmulikes",
+            "video_stats",
+            "video_coviews");
 
     private static final String IDENTITY_COLUMNS =
             """
@@ -93,6 +105,7 @@ public class BulkImporter {
                 deferred.attachConstraints(jdbc);
                 deferred.addForeignKeysNotValid(jdbc);
                 ParallelTasks.runAll(pool, validationTasks(deferred));
+                deferred.createTriggers(jdbc);
             });
             timed("vacuum analyze", () -> ParallelTasks.runAll(pool, vacuumAnalyzeTasks(rowCounts)));
             resetIdentitySequences();
@@ -205,6 +218,12 @@ public class BulkImporter {
                 id++;
             }
         }));
+        tasks.add(load(
+                "video_stats",
+                "bv, viewers, view_time_sum, likes, coins, favorites, danmus",
+                rowCounts,
+                w -> DerivedData.writeVideoStats(videos, danmus, w)));
+        tasks.add(load("video_coviews", "bv, other_bv, viewers", rowCounts, w -> DerivedData.writeCoviews(videos, w)));
         return tasks;
     }
 

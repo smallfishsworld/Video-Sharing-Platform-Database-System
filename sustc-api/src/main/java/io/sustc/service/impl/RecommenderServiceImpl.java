@@ -19,17 +19,15 @@ public class RecommenderServiceImpl implements RecommenderService {
 
     /**
      * One row (the top bvs, possibly none) if the video exists, no row otherwise. Similarity is
-     * the number of users who watched both videos; ties are broken by bv.
+     * the number of users who watched both videos (kept in video_coviews); ties are broken by bv.
      */
     private static final String SIMILAR =
             """
             select array(
-                select o.bv
-                from viewers mine
-                join viewers o on o.mid = mine.mid and o.bv <> mine.bv
-                where mine.bv = v.bv
-                group by o.bv
-                order by count(*) desc, o.bv
+                select c.other_bv
+                from video_coviews c
+                where c.bv = v.bv
+                order by c.viewers desc, c.other_bv
                 limit :limit)
             from videos v
             where v.bv = :bv
@@ -38,28 +36,20 @@ public class RecommenderServiceImpl implements RecommenderService {
     /**
      * score = like + coin + fav + danmu + finish, each relative to the number of viewers. The
      * three rates are clamped to 1 because users can interact without watching; a video nobody
-     * watched scores 0. Each table is aggregated once instead of once per video.
+     * watched scores 0. All inputs are per-video counters from video_stats.
      */
     private static final String GENERAL =
             """
-            with watched as (select bv, count(*)::double precision as n, avg(view_time) as avg_time
-                             from viewers group by bv),
-                 liked as (select bv, count(*) as n from videolikes group by bv),
-                 donated as (select bv, count(*) as n from coins group by bv),
-                 collected as (select bv, count(*) as n from favorites group by bv),
-                 commented as (select bv, count(*) as n from danmus group by bv)
             select v.bv
             from videos v
-            left join watched w on w.bv = v.bv
-            left join liked l on l.bv = v.bv
-            left join donated c on c.bv = v.bv
-            left join collected f on f.bv = v.bv
-            left join commented d on d.bv = v.bv
-            order by coalesce(least(coalesce(l.n, 0) / w.n, 1)
-                            + least(coalesce(c.n, 0) / w.n, 1)
-                            + least(coalesce(f.n, 0) / w.n, 1)
-                            + coalesce(d.n, 0) / w.n
-                            + w.avg_time / v.duration, 0) desc,
+            join video_stats s on s.bv = v.bv
+            order by case when s.viewers = 0 then 0
+                          else least(s.likes::double precision / s.viewers, 1)
+                             + least(s.coins::double precision / s.viewers, 1)
+                             + least(s.favorites::double precision / s.viewers, 1)
+                             + s.danmus::double precision / s.viewers
+                             + s.view_time_sum / s.viewers / v.duration
+                     end desc,
                      v.bv
             limit :limit offset :offset
             """;
@@ -102,7 +92,9 @@ public class RecommenderServiceImpl implements RecommenderService {
 
     /**
      * Users not followed by the current user (and not the user), ranked by the number of
-     * followees they share with the current user, then by level (desc) and mid.
+     * followees they share with the current user, then by level (desc) and mid. The two
+     * exclusions are applied after counting, to the distinct candidates, instead of to every
+     * (followee, follower) row of the join, which for a user with many followings is 10x larger.
      */
     private static final String FRIENDS =
             """
@@ -111,11 +103,10 @@ public class RecommenderServiceImpl implements RecommenderService {
                   from followings mine
                   join followings o on o.followee_mid = mine.followee_mid
                   where mine.follower_mid = :me
-                    and o.follower_mid <> :me
-                    and not exists (select 1 from followings x
-                                    where x.follower_mid = :me and x.followee_mid = o.follower_mid)
                   group by o.follower_mid) c
             join users u on u.mid = c.mid
+            where c.mid <> :me
+              and not exists (select 1 from followings x where x.follower_mid = :me and x.followee_mid = c.mid)
             order by c.common desc, u.level desc, c.mid
             limit :limit offset :offset
             """;

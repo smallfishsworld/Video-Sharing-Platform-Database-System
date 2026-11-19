@@ -7,8 +7,9 @@
 --   psql -v super_manager_password=... -v manager_password=... -v normal_user_password=... \
 --        -f sql/usercontrol.sql
 --
--- Triggers run with the privileges of the role whose statement fires them, so every role that
--- changes users must be able to append to the audit log (but not read or rewrite it).
+-- Triggers run with the privileges of the role whose statement fires them: every role that
+-- changes users must be able to append to the audit log (but not read or rewrite it), and every
+-- role that writes interactions must be able to update the derived tables (see build.sql).
 
 create role supermanager login password :'super_manager_password';
 create role manager login password :'manager_password';
@@ -22,6 +23,7 @@ grant all on all sequences in schema public to supermanager;
 grant select, insert, update, delete
     on users, videos, followings, viewers, videolikes, coins, favorites, danmus, danmulikes
     to manager;
+grant select, insert, update, delete on video_stats, video_coviews to manager;
 grant usage on all sequences in schema public to manager;
 grant insert on log_users to manager;
 
@@ -29,10 +31,12 @@ grant insert on log_users to manager;
 -- like/coin/collect videos (a coin also updates the donor's balance) and send/like danmus. The
 -- toggles need DELETE because liking twice removes the like.
 grant select
-    on users, videos, followings, viewers, videolikes, coins, favorites, danmus, danmulikes
+    on users, videos, followings, viewers, videolikes, coins, favorites, danmus, danmulikes,
+       video_stats, video_coviews
     to normaluser;
 grant insert on users, coins, danmus to normaluser;
 grant update (coin) on users to normaluser;
 grant insert, delete on followings, videolikes, favorites, danmulikes to normaluser;
+grant insert, update on video_stats to normaluser;
 grant usage on all sequences in schema public to normaluser;
 grant insert on log_users to normaluser;
