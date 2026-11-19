@@ -8,16 +8,17 @@ import io.sustc.service.impl.support.Strings;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
@@ -45,10 +46,17 @@ import org.springframework.stereotype.Component;
  *       past the imported ids.
  * </ol>
  *
- * All steps run on a pool of {@code sustc.import.parallelism} threads (default 4), each with its
- * own connection, so the connection pool must allow at least that many connections. If any step
- * fails, the tables are truncated and the schema objects restored before the exception is
- * rethrown, so the database is left empty with its complete schema.
+ * The table loads, index builds, foreign-key validations and VACUUM (ANALYZE) run as tasks on a
+ * pool of {@code sustc.import.parallelism} threads (default 4), each task with its own pooled
+ * connection, so the connection pool must allow at least that many connections. Capturing,
+ * dropping and re-attaching the schema objects, creating the triggers and resetting the
+ * sequences run on the calling thread.
+ *
+ * <p>If any step fails, the imported tables are truncated and the schema objects restored before
+ * an {@link ImportException} naming the failed phase is thrown, so the imported tables are left
+ * empty with their complete schema. The users audit log ({@code sql/audit.sql}) is not an
+ * imported table: it keeps the INSERT records of the failed attempt's users and a TRUNCATE record
+ * for every truncation of users, so the failed attempt stays visible in the trail.
  */
 @Component
 @Slf4j
@@ -73,46 +81,57 @@ public class BulkImporter {
             select c.relname as table_name, a.attname as column_name
             from pg_attribute a
             join pg_class c on c.oid = a.attrelid
-            where c.relnamespace = current_schema()::regnamespace and a.attidentity <> ''
+            where c.relnamespace = current_schema()::regnamespace and a.attidentity <> '' and not a.attisdropped
               and c.relname = any (?)
             """;
+
+    /** How long a failed import waits for its remaining tasks to stop before it cleans up. */
+    private static final long TASK_STOP_TIMEOUT_MINUTES = 5;
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbc;
     private final int parallelism;
 
-    public BulkImporter(DataSource dataSource, @Value("${sustc.import.parallelism:4}") int parallelism) {
+    public BulkImporter(JdbcTemplate jdbc, @Value("${sustc.import.parallelism:4}") int parallelism) {
         if (parallelism < 1) {
             throw new IllegalArgumentException("sustc.import.parallelism must be at least 1");
         }
-        this.dataSource = dataSource;
-        this.jdbc = new JdbcTemplate(dataSource);
+        this.jdbc = jdbc;
+        this.dataSource = Objects.requireNonNull(jdbc.getDataSource());
         this.parallelism = parallelism;
     }
 
+    /**
+     * Imports the records.
+     *
+     * @throws IllegalStateException if an imported table is not empty; nothing is changed then
+     * @throws ImportException if the import fails; see the class comment for the state it leaves
+     */
     public void importData(List<DanmuRecord> danmus, List<UserRecord> users, List<VideoRecord> videos) {
         requireEmptyTables();
         long start = System.nanoTime();
         DeferredSchemaObjects deferred = DeferredSchemaObjects.capture(jdbc, TABLES);
 
         Map<String, Long> rowCounts = new ConcurrentHashMap<>();
+        AtomicReference<String> phase = new AtomicReference<>();
         ExecutorService pool = Executors.newFixedThreadPool(parallelism, threadFactory());
         try {
-            deferred.dropAll(jdbc);
-            timed("load", () -> ParallelTasks.runAll(pool, loadTasks(danmus, users, videos, rowCounts)));
-            timed("indexes", () -> ParallelTasks.runAll(pool, indexTasks(deferred, rowCounts)));
-            timed("constraints", () -> {
+            timed(phase, "drop schema objects", () -> deferred.dropAll(jdbc));
+            timed(phase, "load", () -> ParallelTasks.runAll(pool, loadTasks(danmus, users, videos, rowCounts)));
+            timed(phase, "indexes", () -> ParallelTasks.runAll(pool, indexTasks(deferred, rowCounts)));
+            timed(phase, "constraints", () -> {
                 deferred.attachConstraints(jdbc);
                 deferred.addForeignKeysNotValid(jdbc);
                 ParallelTasks.runAll(pool, validationTasks(deferred));
                 deferred.createTriggers(jdbc);
             });
-            timed("vacuum analyze", () -> ParallelTasks.runAll(pool, vacuumAnalyzeTasks(rowCounts)));
-            resetIdentitySequences();
+            timed(phase, "vacuum analyze", () -> ParallelTasks.runAll(pool, vacuumAnalyzeTasks(rowCounts)));
+            timed(phase, "identity sequences", this::resetIdentitySequences);
         } catch (RuntimeException e) {
             shutdownAndWait(pool);
-            restoreEmptySchema(deferred, e);
-            throw e;
+            ImportException failure = new ImportException("Import phase '" + phase.get() + "' failed", e);
+            restoreEmptySchema(deferred, failure);
+            throw failure;
         } finally {
             pool.shutdownNow();
         }
@@ -126,105 +145,117 @@ public class BulkImporter {
                         .map(t -> "exists (select 1 from " + DeferredSchemaObjects.quote(t) + ")")
                         .toList());
         if (Boolean.TRUE.equals(jdbc.queryForObject("select " + query, Boolean.class))) {
-            throw new ImportException("importData expects empty tables; call truncate() first");
+            throw new IllegalStateException("importData expects empty tables; call truncate() first");
         }
     }
 
     private List<NamedTask> loadTasks(
             List<DanmuRecord> danmus, List<UserRecord> users, List<VideoRecord> videos, Map<String, Long> rowCounts) {
-        List<NamedTask> tasks = new ArrayList<>();
         // The biggest table first, so that it is not left running alone at the end.
-        tasks.add(load("followings", "follower_mid, followee_mid", rowCounts, w -> {
-            for (UserRecord u : users) {
-                checkInterrupted();
-                for (long followee : orEmpty(u.getFollowing())) {
-                    w.value(u.getMid()).value(followee).endRow();
-                }
+        return List.of(
+                load("followings", "follower_mid, followee_mid", rowCounts, w -> writeFollowings(w, users)),
+                load("viewers", "bv, mid, view_time", rowCounts, w -> writeViewers(w, videos)),
+                load("videolikes", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getLike)),
+                load("coins", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getCoin)),
+                load("favorites", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getFavorite)),
+                load(
+                        "users",
+                        "mid, name, sex, birthday, level, coin, sign, identity, password, qq, wechat",
+                        rowCounts,
+                        w -> writeUsers(w, users)),
+                load(
+                        "videos",
+                        "bv, title, owner_mid, owner_name, commit_time, review_time, reviewer, public_time,"
+                                + " duration, description",
+                        rowCounts,
+                        w -> writeVideos(w, videos)),
+                load("danmus", "id, bv, mid, time, content, post_time", rowCounts, w -> writeDanmus(w, danmus)),
+                load("danmulikes", "danmu_id, mid", rowCounts, w -> writeDanmuLikes(w, danmus)),
+                load(
+                        "video_stats",
+                        "bv, viewers, view_time_sum, likes, coins, favorites, danmus",
+                        rowCounts,
+                        w -> DerivedData.writeVideoStats(videos, danmus, w)),
+                load("video_coviews", "bv, other_bv, viewers", rowCounts, w -> DerivedData.writeCoviews(videos, w)));
+    }
+
+    private static void writeFollowings(CopyRowWriter w, List<UserRecord> users) throws SQLException {
+        for (UserRecord u : users) {
+            checkInterrupted();
+            for (long followee : DerivedData.orEmpty(u.getFollowing())) {
+                w.value(u.getMid()).value(followee).endRow();
             }
-        }));
-        tasks.add(load("viewers", "bv, mid, view_time", rowCounts, w -> {
-            for (VideoRecord v : videos) {
-                checkInterrupted();
-                long[] mids = orEmpty(v.getViewerMids());
-                float[] times = v.getViewTime() == null ? new float[0] : v.getViewTime();
-                for (int i = 0; i < mids.length; i++) {
-                    w.value(v.getBv()).value(mids[i]).value(times[i]).endRow();
-                }
+        }
+    }
+
+    private static void writeViewers(CopyRowWriter w, List<VideoRecord> videos) throws SQLException {
+        for (VideoRecord v : videos) {
+            checkInterrupted();
+            long[] mids = DerivedData.orEmpty(v.getViewerMids());
+            float[] times = v.getViewTime() == null ? new float[0] : v.getViewTime();
+            for (int i = 0; i < mids.length; i++) {
+                w.value(v.getBv()).value(mids[i]).value(times[i]).endRow();
             }
-        }));
-        tasks.add(load("videolikes", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getLike)));
-        tasks.add(load("coins", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getCoin)));
-        tasks.add(load("favorites", "bv, mid", rowCounts, w -> writePairs(w, videos, VideoRecord::getFavorite)));
-        tasks.add(load(
-                "users",
-                "mid, name, sex, birthday, level, coin, sign, identity, password, qq, wechat",
-                rowCounts,
-                w -> {
-                    for (UserRecord u : users) {
-                        w.value(u.getMid())
-                                .value(u.getName())
-                                .value(u.getSex())
-                                .value(Strings.emptyToNull(u.getBirthday()))
-                                .value(u.getLevel())
-                                .value(u.getCoin())
-                                .value(u.getSign())
-                                .value(u.getIdentity().name())
-                                .value(u.getPassword())
-                                // Empty OIDC ids mean "none" and must not collide in the unique index.
-                                .value(Strings.emptyToNull(u.getQq()))
-                                .value(Strings.emptyToNull(u.getWechat()))
-                                .endRow();
-                    }
-                }));
-        tasks.add(load(
-                "videos",
-                "bv, title, owner_mid, owner_name, commit_time, review_time, reviewer, public_time, duration,"
-                        + " description",
-                rowCounts,
-                w -> {
-                    for (VideoRecord v : videos) {
-                        w.value(v.getBv())
-                                .value(v.getTitle())
-                                .value(v.getOwnerMid())
-                                .value(v.getOwnerName())
-                                .value(v.getCommitTime())
-                                .value(v.getReviewTime())
-                                .value(v.getReviewer())
-                                .value(v.getPublicTime())
-                                .value(v.getDuration())
-                                .value(v.getDescription())
-                                .endRow();
-                    }
-                }));
-        // Danmu ids are assigned in input order, starting from 1.
-        tasks.add(load("danmus", "id, bv, mid, time, content, post_time", rowCounts, w -> {
-            long id = 1;
-            for (DanmuRecord d : danmus) {
-                w.value(id++)
-                        .value(d.getBv())
-                        .value(d.getMid())
-                        .value(d.getTime())
-                        .value(d.getContent())
-                        .value(d.getPostTime())
-                        .endRow();
+        }
+    }
+
+    private static void writeUsers(CopyRowWriter w, List<UserRecord> users) throws SQLException {
+        for (UserRecord u : users) {
+            w.value(u.getMid())
+                    .value(u.getName())
+                    .value(u.getSex())
+                    .value(Strings.emptyToNull(u.getBirthday()))
+                    .value(u.getLevel())
+                    .value(u.getCoin())
+                    .value(u.getSign())
+                    .value(u.getIdentity().name())
+                    .value(u.getPassword())
+                    // Empty OIDC ids mean "none" and must not collide in the unique index.
+                    .value(Strings.emptyToNull(u.getQq()))
+                    .value(Strings.emptyToNull(u.getWechat()))
+                    .endRow();
+        }
+    }
+
+    private static void writeVideos(CopyRowWriter w, List<VideoRecord> videos) throws SQLException {
+        for (VideoRecord v : videos) {
+            w.value(v.getBv())
+                    .value(v.getTitle())
+                    .value(v.getOwnerMid())
+                    .value(v.getOwnerName())
+                    .value(v.getCommitTime())
+                    .value(v.getReviewTime())
+                    .value(v.getReviewer())
+                    .value(v.getPublicTime())
+                    .value(v.getDuration())
+                    .value(v.getDescription())
+                    .endRow();
+        }
+    }
+
+    /** Danmu ids are assigned in input order, starting from 1. */
+    private static void writeDanmus(CopyRowWriter w, List<DanmuRecord> danmus) throws SQLException {
+        long id = 1;
+        for (DanmuRecord d : danmus) {
+            w.value(id++)
+                    .value(d.getBv())
+                    .value(d.getMid())
+                    .value(d.getTime())
+                    .value(d.getContent())
+                    .value(d.getPostTime())
+                    .endRow();
+        }
+    }
+
+    /** Uses the same ids as {@link #writeDanmus}. */
+    private static void writeDanmuLikes(CopyRowWriter w, List<DanmuRecord> danmus) throws SQLException {
+        long id = 1;
+        for (DanmuRecord d : danmus) {
+            for (long mid : DerivedData.orEmpty(d.getLikedBy())) {
+                w.value(id).value(mid).endRow();
             }
-        }));
-        tasks.add(load("danmulikes", "danmu_id, mid", rowCounts, w -> {
-            long id = 1;
-            for (DanmuRecord d : danmus) {
-                for (long mid : orEmpty(d.getLikedBy())) {
-                    w.value(id).value(mid).endRow();
-                }
-                id++;
-            }
-        }));
-        tasks.add(load(
-                "video_stats",
-                "bv, viewers, view_time_sum, likes, coins, favorites, danmus",
-                rowCounts,
-                w -> DerivedData.writeVideoStats(videos, danmus, w)));
-        tasks.add(load("video_coviews", "bv, other_bv, viewers", rowCounts, w -> DerivedData.writeCoviews(videos, w)));
-        return tasks;
+            id++;
+        }
     }
 
     @FunctionalInterface
@@ -275,7 +306,7 @@ public class BulkImporter {
             throws SQLException {
         for (VideoRecord v : videos) {
             checkInterrupted();
-            for (long mid : orEmpty(mids.apply(v))) {
+            for (long mid : DerivedData.orEmpty(mids.apply(v))) {
                 w.value(v.getBv()).value(mid).endRow();
             }
         }
@@ -308,23 +339,29 @@ public class BulkImporter {
                 .toList();
     }
 
-    /** Makes the next generated id follow the largest imported one. */
+    private record IdentityColumn(String table, String column) {}
+
+    /**
+     * Makes the next generated id follow the largest imported one. The columns are read first and
+     * the sequences set afterwards, so that only one pooled connection is in use at a time.
+     */
     private void resetIdentitySequences() {
-        jdbc.query(
+        List<IdentityColumn> columns = jdbc.query(
                 IDENTITY_COLUMNS,
-                rs -> {
-                    String table = DeferredSchemaObjects.quote(rs.getString("table_name"));
-                    String column = DeferredSchemaObjects.quote(rs.getString("column_name"));
-                    jdbc.queryForObject(
-                            "select setval(pg_get_serial_sequence(?, ?), coalesce(max(" + column + "), 0) + 1, false)"
-                                    + " from " + table,
-                            Long.class,
-                            table,
-                            rs.getString("column_name"));
-                },
+                (rs, i) -> new IdentityColumn(rs.getString("table_name"), rs.getString("column_name")),
                 (Object) TABLES.toArray(String[]::new));
+        for (IdentityColumn c : columns) {
+            String table = DeferredSchemaObjects.quote(c.table());
+            jdbc.queryForObject(
+                    "select setval(pg_get_serial_sequence(?, ?), coalesce(max("
+                            + DeferredSchemaObjects.quote(c.column()) + "), 0) + 1, false) from " + table,
+                    Long.class,
+                    table,
+                    c.column());
+        }
     }
 
+    /** Empties the imported tables and recreates missing schema objects; log_users is kept. */
     private void restoreEmptySchema(DeferredSchemaObjects deferred, RuntimeException failure) {
         try {
             jdbc.execute("truncate "
@@ -338,7 +375,8 @@ public class BulkImporter {
         }
     }
 
-    private void timed(String phase, Runnable step) {
+    private void timed(AtomicReference<String> current, String phase, Runnable step) {
+        current.set(phase);
         long start = System.nanoTime();
         step.run();
         log.info("Import phase '{}' took {} ms", phase, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
@@ -347,8 +385,8 @@ public class BulkImporter {
     private static void shutdownAndWait(ExecutorService pool) {
         pool.shutdownNow();
         try {
-            if (!pool.awaitTermination(5, TimeUnit.MINUTES)) {
-                log.warn("Import tasks did not stop within 5 minutes");
+            if (!pool.awaitTermination(TASK_STOP_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+                log.warn("Import tasks did not stop within {} minutes", TASK_STOP_TIMEOUT_MINUTES);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -359,10 +397,6 @@ public class BulkImporter {
         if (Thread.currentThread().isInterrupted()) {
             throw new ImportException("Import cancelled");
         }
-    }
-
-    private static long[] orEmpty(long[] values) {
-        return values == null ? new long[0] : values;
     }
 
     private static ThreadFactory threadFactory() {

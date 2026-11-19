@@ -96,9 +96,13 @@ class BulkImporterTest extends IntegrationTest {
                     v.setViewerMids(new long[] {11, 5});
                     v.setViewTime(new float[] {1.25f, 33.3f});
                 }),
-                video("BV1ccccccccc", 11, "carol", 10f, "nobody watched this", ts("2023-12-02 08:30:00"), 1000L, v -> {
+                video("BV1ccccccccc", 11, "carol", 10f, "", ts("2023-12-02 08:30:00"), 1000L, v -> {
+                    // COPY text-format specials, a CRLF and a character outside the BMP
+                    v.setTitle("\\. ends COPY data\r\nand \\N is NULL \uD83D\uDE00");
                     v.setLike(new long[] {5});
                 }));
+        users.get(1).setSign("\\N");
+        users.get(3).setSign("");
         List<DanmuRecord> danmus = List.of(
                 danmu("BV1aaaaaaaaa", 7, 1.1f, "hello \\ world", ts("2023-12-03 01:02:03.5"), 5, 11),
                 danmu("BV1aaaaaaaaa", 11, 99.99f, "弹幕", ts("2023-12-03 01:02:04")),
@@ -225,7 +229,7 @@ class BulkImporterTest extends IntegrationTest {
         Dataset data = dataset();
 
         assertThatThrownBy(() -> databaseService.importData(data.danmus(), data.users(), data.videos()))
-                .isInstanceOf(ImportException.class);
+                .isInstanceOf(IllegalStateException.class);
 
         assertThat(jdbc.queryForList("select mid from users", Long.class)).containsExactly(existing);
         assertThat(jdbc.queryForList(CATALOG, String.class)).isEqualTo(catalogBefore);
@@ -238,8 +242,10 @@ class BulkImporterTest extends IntegrationTest {
 
         assertThatThrownBy(() -> databaseService.importData(bad.danmus(), bad.users(), bad.videos()))
                 .isInstanceOf(ImportException.class)
-                .hasMessageContaining("validate foreign keys of coins");
+                .hasMessageContaining("constraints")
+                .hasStackTraceContaining("validate foreign keys of coins");
 
+        assertAuditTrailOfFailedAttempt(bad.users().size());
         assertEmptyWithCompleteSchema();
     }
 
@@ -250,9 +256,115 @@ class BulkImporterTest extends IntegrationTest {
         users.add(user(7, "bob again", Identity.USER, "", "", new long[0]));
 
         assertThatThrownBy(() -> databaseService.importData(data.danmus(), users, data.videos()))
-                .isInstanceOf(ImportException.class);
+                .isInstanceOf(ImportException.class)
+                .hasMessageContaining("indexes");
 
+        assertAuditTrailOfFailedAttempt(users.size());
         assertEmptyWithCompleteSchema();
+    }
+
+    /**
+     * A COPY fails while other loads are still running: a user without a name (NOT NULL) next to a
+     * large followings list. Every load is rolled back or truncated, and no connection leaks.
+     */
+    @Test
+    void aFailedLoadLeavesAnEmptyCompleteSchema() {
+        Dataset data = dataset();
+        List<UserRecord> users = new ArrayList<>(data.users());
+        UserRecord nameless = user(77, "x", Identity.USER, "", "", new long[0]);
+        nameless.setName(null);
+        users.add(nameless);
+        long[] many = new long[300_000];
+        for (int i = 0; i < many.length; i++) {
+            many[i] = 1_000_000 + i;
+        }
+        users.get(0).setFollowing(many);
+
+        assertThatThrownBy(() -> databaseService.importData(data.danmus(), users, data.videos()))
+                .isInstanceOf(ImportException.class)
+                .hasMessageContaining("load");
+
+        // the users COPY was rolled back, so the attempt left no INSERT records
+        assertAuditTrailOfFailedAttempt(0);
+        assertEmptyWithCompleteSchema();
+    }
+
+    /** Deferrable and NOT VALID constraints come back as they were. */
+    @Test
+    void deferrableAndNotValidConstraintsSurviveTheImport() {
+        String[] change = {
+            "alter table users drop constraint users_qq_key",
+            "alter table users add constraint users_qq_key unique (qq) deferrable initially deferred",
+            "alter table viewers alter constraint viewers_mid_fkey deferrable initially deferred",
+            "alter table danmus add constraint danmus_mid_extra_fkey foreign key (mid) references users (mid) not valid"
+        };
+        String[] undo = {
+            "alter table danmus drop constraint danmus_mid_extra_fkey",
+            "alter table viewers alter constraint viewers_mid_fkey not deferrable",
+            "alter table users drop constraint users_qq_key",
+            "alter table users add constraint users_qq_key unique (qq)"
+        };
+        jdbc.batchUpdate(change);
+        try {
+            List<String> changed = jdbc.queryForList(CATALOG, String.class);
+            Dataset data = dataset();
+
+            databaseService.importData(data.danmus(), data.users(), data.videos());
+
+            assertThat(jdbc.queryForList(CATALOG, String.class)).isEqualTo(changed);
+            assertThat(changed)
+                    .anyMatch(c -> c.contains("users_qq_key") && c.contains("DEFERRABLE INITIALLY DEFERRED"))
+                    .anyMatch(c -> c.contains("danmus_mid_extra_fkey") && c.endsWith("(not validated)"));
+        } finally {
+            databaseService.truncate();
+            jdbc.batchUpdate(undo);
+        }
+        assertThat(jdbc.queryForList(CATALOG, String.class)).isEqualTo(catalogBefore);
+    }
+
+    /** A dropped identity column stays in pg_attribute; the sequence reset must skip it. */
+    @Test
+    void aDroppedIdentityColumnDoesNotBreakTheImport() {
+        jdbc.execute("alter table danmus add column scratch bigint generated always as identity");
+        jdbc.execute("alter table danmus drop column scratch");
+        Dataset data = dataset();
+
+        databaseService.importData(data.danmus(), data.users(), data.videos());
+
+        assertThat(count("select count(*) from danmus")).isEqualTo(data.danmus().size());
+    }
+
+    /** Objects that cannot be recreated exactly are refused before anything is changed. */
+    @Test
+    void unsupportedSchemaObjectsAreRefusedBeforeAnythingChanges() {
+        jdbc.execute("comment on index users_qq_key is 'would be lost'");
+        try {
+            List<String> catalog = jdbc.queryForList(CATALOG, String.class);
+            Dataset data = dataset();
+
+            assertThatThrownBy(() -> databaseService.importData(data.danmus(), data.users(), data.videos()))
+                    .isInstanceOf(ImportException.class)
+                    .hasMessageContaining("index users_qq_key has a comment");
+
+            assertThat(jdbc.queryForList(CATALOG, String.class)).isEqualTo(catalog);
+            assertThat(count("select count(*) from users")).isZero();
+        } finally {
+            jdbc.execute("comment on index users_qq_key is null");
+        }
+    }
+
+    /**
+     * The users audit log is not an imported table: the cleanup leaves the failed attempt's INSERT
+     * records in place and records its own TRUNCATE.
+     */
+    private void assertAuditTrailOfFailedAttempt(int insertedUsers) {
+        assertThat(count("select count(*) from log_users where operation = 'INSERT'"))
+                .isEqualTo(insertedUsers);
+        assertThat(jdbc.queryForObject(
+                        "select operation from log_users order by stamp desc, ctid desc limit 1", String.class))
+                .isEqualTo("TRUNCATE");
+        assertThat(count("select count(*) from log_users where operation = 'TRUNCATE' and mid is null"))
+                .isGreaterThanOrEqualTo(2);
     }
 
     private void assertEmptyWithCompleteSchema() {

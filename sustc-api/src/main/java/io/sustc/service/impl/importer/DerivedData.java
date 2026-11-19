@@ -53,9 +53,18 @@ final class DerivedData {
      * viewers. Each user who watched k videos contributes to k * (k - 1) pairs.
      */
     static void writeCoviews(List<VideoRecord> videos, CopyRowWriter w) throws SQLException {
+        writeCoviews(videos, w, DENSE_MATRIX_MAX_VIDEOS);
+    }
+
+    /**
+     * Like {@link #writeCoviews(List, CopyRowWriter)}, with the largest catalog that still uses the
+     * dense matrix as a parameter, so that tests can run both branches on the same input. The two
+     * branches write the same rows, in a different order.
+     */
+    static void writeCoviews(List<VideoRecord> videos, CopyRowWriter w, int denseMatrixMaxVideos) throws SQLException {
         int n = videos.size();
         Map<Long, int[]> watchedBy = watchedVideos(videos);
-        if (n <= DENSE_MATRIX_MAX_VIDEOS) {
+        if (n <= denseMatrixMaxVideos) {
             int[] counts = new int[n * n];
             for (int[] watched : watchedBy.values()) {
                 int k = watched[0];
@@ -116,7 +125,7 @@ final class DerivedData {
         return watchedBy;
     }
 
-    private static long[] orEmpty(long[] values) {
+    static long[] orEmpty(long[] values) {
         return values == null ? new long[0] : values;
     }
 }
