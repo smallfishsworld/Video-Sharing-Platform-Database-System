@@ -2,16 +2,21 @@
 """One run of the course benchmark through the shared harness, with server-side measurements.
 
     scripts/bench_instrumented.py --repo DIR --label LABEL --out DIR [--settle | --analyze]
-        [--friend-sql FILE] SQL_FILE...
+        [--friend-sql FILE] [--harness FILE] [--bench-out DIR] [--lock FILE] SQL_FILE...
 
-The run itself is `flock /home/user/work/bench.lock /home/user/work/bench6/run_bench.sh DIR LABEL
-SQL_FILE...`, unchanged: same JVM flags, same schema reset. Alongside it this script follows the
+The run itself is `HARNESS DIR LABEL SQL_FILE...` while this script holds an exclusive flock on
+LOCK. HARNESS (--harness, or $BENCH_HARNESS) defaults to scripts/run_bench.sh, the vendored copy
+of /home/user/work/bench6/run_bench.sh (same JVM flags, same schema reset); it writes LABEL.log
+and LABEL.json to --bench-out ($BENCH_OUT, default /home/user/work/bench6). LOCK (--lock, or
+$BENCH_LOCK) defaults to /home/user/work/bench.lock. The lock is taken before anything about the
+run is recorded and released after the WAL has been read. Alongside the run this script follows the
 runner's log and records, at every step boundary, the server's WAL insert position and the
 kernel's Dirty figure. After the run it reads, for every step, the WAL between those positions
 with pg_waldump (records, record bytes, full-page-image bytes), and the server log's checkpoint
 lines during the run. It also records pg_stat_wal and pg_stat_bgwriter before the run, at the
 start of step 10 and the end of step 23 (the write steps are 10 and 12-23 apart from 20) and after
-the run, the boot time, and the git commit, working-tree state and jar hash of DIR.
+the run, the boot time before and after the run, and the git commit, working-tree state and jar
+hash of DIR, taken once the lock is held.
 
 --settle pauses the runner (SIGSTOP) as soon as step 1 (the import) has reported, runs CHECKPOINT
 as postgres, waits for Dirty to fall below 64 MB, and lets it continue. --analyze does the same
@@ -27,6 +32,7 @@ written to LABEL.monitor.json. Only the local server is used.
 """
 import argparse
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -36,8 +42,7 @@ import subprocess
 import sys
 import time
 
-BENCH = "/home/user/work/bench6"
-LOCK = "/home/user/work/bench.lock"
+HERE = os.path.dirname(os.path.realpath(__file__))
 PG_LOG = "/var/log/postgresql/postgresql-16-main.log"
 WALDUMP = "/usr/lib/postgresql/16/bin/pg_waldump"
 PG_WAL = "/var/lib/postgresql/16/main/pg_wal"
@@ -195,11 +200,15 @@ def main():
     g.add_argument("--analyze", action="store_true")
     ap.add_argument("--friend-sql")
     ap.add_argument("--friend-mid", type=int, default=1)
+    ap.add_argument("--harness", default=os.environ.get("BENCH_HARNESS", os.path.join(HERE, "run_bench.sh")))
+    ap.add_argument("--bench-out", default=os.environ.get("BENCH_OUT", "/home/user/work/bench6"))
+    ap.add_argument("--lock", default=os.environ.get("BENCH_LOCK", "/home/user/work/bench.lock"))
     ap.add_argument("sql", nargs="+")
     a = ap.parse_args()
+    bench, harness = os.path.realpath(a.bench_out), os.path.realpath(a.harness)
     if not re.fullmatch(r"[A-Za-z0-9._-]+", a.label):
         sys.exit("bad label")
-    log_path, report = f"{BENCH}/{a.label}.log", f"{BENCH}/{a.label}.json"
+    log_path, report = f"{bench}/{a.label}.log", f"{bench}/{a.label}.json"
     if os.path.exists(log_path) or os.path.exists(report):
         sys.exit(f"{log_path} or {report} exists; use a new label")
     os.makedirs(a.out, exist_ok=True)
@@ -207,26 +216,33 @@ def main():
     jar = f"{repo}/run/sustc-runner.jar"
     meta = {
         "label": a.label, "repo": repo,
-        "code_sha": sh("git", "-C", repo, "rev-parse", "HEAD"),
-        "porcelain_lines": len([l for l in sh("git", "-C", repo, "status", "--porcelain", "--untracked-files=no").splitlines() if l]),
-        "jar_sha256": hashlib.sha256(open(jar, "rb").read()).hexdigest(),
         "sql": a.sql, "variant": "settle" if a.settle else "analyze" if a.analyze else "plain",
-        "boot": sh("uptime", "-s"),
-        "command": ["flock", LOCK, f"{BENCH}/run_bench.sh", repo, a.label] + a.sql,
+        "command": [harness, repo, a.label] + a.sql, "bench_out": bench, "lock": a.lock,
+        "harness_sha256": hashlib.sha256(open(harness, "rb").read()).hexdigest(),
     }
+    lock_fd = os.open(a.lock, os.O_RDONLY | os.O_CREAT, 0o666)
+    meta["lock_wait_started_epoch"] = time.time()
+    fcntl.flock(lock_fd, fcntl.LOCK_EX)  # the same lock as flock(1) takes
+    meta["lock_acquired_epoch"] = time.time()
+    # What the run measures, recorded while the lock is held.
+    meta["code_sha"] = sh("git", "-C", repo, "rev-parse", "HEAD")
+    meta["porcelain_lines"] = len([l for l in sh("git", "-C", repo, "status", "--porcelain", "--untracked-files=no").splitlines() if l])
+    meta["jar_sha256"] = hashlib.sha256(open(jar, "rb").read()).hexdigest()
+    meta["sql_sha256"] = {f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in a.sql}
+    meta["boot"] = sh("uptime", "-s")
     db = Psql()
     meta["server"] = db.value("select version()")
     meta["java"] = [l for l in subprocess.run(["java", "-version"], capture_output=True, text=True).stderr.splitlines()
                     if not l.startswith("Picked up")][0]
-    proc = subprocess.Popen(meta["command"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    meta["lock_wait_started_epoch"] = time.time()
+    proc = subprocess.Popen(meta["command"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            env=dict(os.environ, BENCH_OUT=bench))
     events, pause_info, planner, before = [], None, {}, None
     seen = 0
     f = None
     while True:
         if f is None and os.path.exists(log_path):
             f = open(log_path)
-            before = counters(db)  # the schema is reset and java has started: the lock is held
+            before = counters(db)  # the schema is reset and java has started
         if f is not None:
             for line in f.readlines():
                 seen += 1
@@ -272,6 +288,8 @@ def main():
     out = {"meta": meta, "before": before, "after": after, "pause": pause_info, "planner": planner,
            "events": events, "steps": steps,
            "checkpoints": server_log_lines(t_first, after["epoch"])}
+    os.close(lock_fd)  # releases the lock
+    meta["lock_released_epoch"] = time.time()
     if os.path.exists(report):
         out["report"] = json.load(open(report))
     with open(f"{a.out}/{a.label}.monitor.json", "w") as fo:
@@ -282,7 +300,8 @@ def main():
                 fo.write(fi.read())
     with open(f"{a.out}/{a.label}.log", "a") as fo:
         fo.write(f"code_sha={meta['code_sha']} porcelain_lines={meta['porcelain_lines']} "
-                 f"jar_sha256={meta['jar_sha256']} boot={meta['boot']} variant={meta['variant']}\n")
+                 f"jar_sha256={meta['jar_sha256']} boot={meta['boot']} boot_after={meta['boot_after']} "
+                 f"variant={meta['variant']}\n")
     print(f"{a.label}: exit {proc.returncode}, {len(steps)} steps, boot {meta['boot']} / {meta['boot_after']}")
 
 

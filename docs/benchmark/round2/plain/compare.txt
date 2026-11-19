@@ -1,29 +1,29 @@
-# cd /home/user/work/bench6 && python3 -I compare.py baseline=c2-B1.json,c2-B2.json,c2-B3.json optimized=c2-O1.json,c2-O2.json,c2-O3.json
-# (bench6/c2-*.json are byte-identical to the files in this directory; run order B1, O1, B2, O2, B3, O3 on one boot)
-step                       baseline ms baseline pass    optimized msoptimized pass
- 1 import             91728 [90357-93241]             -8843 [8184-8943]             -
- 2 search                255 [242-271]         18/20      51 [44-53]         20/20
- 3 view rate                51 [51-52]         60/61      20 [15-23]         61/61
- 4 hotspot                  14 [10-15]         56/56      19 [18-23]         56/56
- 5 similar videos     2317 [2178-2517]         43/43      23 [20-24]         43/43
- 6 general rec        1097 [1006-1292]         11/11         5 [3-8]         11/11
- 7 user rec           2106 [1902-2156]         27/27      62 [50-65]         27/27
- 8 friend rec         12768 [11970-12928]       142/142   686 [519-708]       142/142
- 9 danmu display            72 [42-91]       382/382     80 [54-100]       382/382
-10 danmu send            204 [161-350]     1016/1016   369 [286-393]     1016/1016
-11 user info             277 [256-362]       500/500   125 [118-182]       500/500
-12 danmu like                        -       500/500               -       500/500
-13 coin                  547 [448-640]       511/511   567 [511-615]       511/511
-14 like                  591 [551-612]       686/686   686 [642-718]       686/686
-15 collect               469 [440-630]       644/644   551 [550-642]       644/644
-16 post video               55 [30-70]       184/184      64 [58-72]       184/184
-17 register              109 [100-110]       273/273    118 [78-135]       273/273
-18 update video             19 [16-27]       184/184      33 [33-47]       184/184
-19 review                   18 [15-20]         35/35      26 [24-33]         35/35
-20 search after update    100 [99-112]           5/6         9 [8-9]           6/6
-21 delete video          450 [439-450]         55/55   591 [533-593]         55/55
-22 delete account        337 [297-365]       199/199   292 [291-319]       199/199
-23 follow                   47 [31-47]         87/87      56 [42-58]         87/87
+# python3 -I scripts/compare.py baseline=docs/benchmark/round2/plain/c2-B1.json,docs/benchmark/round2/plain/c2-B2.json,docs/benchmark/round2/plain/c2-B3.json optimized=docs/benchmark/round2/plain/c2-O1.json,docs/benchmark/round2/plain/c2-O2.json,docs/benchmark/round2/plain/c2-O3.json
+# (regenerated offline from the JSON files in this directory with the vendored compare.py, whose columns are wider; the figures are those of /home/user/work/bench6/compare.py; run order B1, O1, B2, O2, B3, O3 on one boot)
+step                                  baseline ms baseline pass              optimized ms optimized pass
+ 1 import                     91728 [90357-93241]             -          8843 [8184-8943]             -
+ 2 search                           255 [242-271]         18/20                51 [44-53]         20/20
+ 3 view rate                           51 [51-52]         60/61                20 [15-23]         61/61
+ 4 hotspot                             14 [10-15]         56/56                19 [18-23]         56/56
+ 5 similar videos                2317 [2178-2517]         43/43                23 [20-24]         43/43
+ 6 general rec                   1097 [1006-1292]         11/11                   5 [3-8]         11/11
+ 7 user rec                      2106 [1902-2156]         27/27                62 [50-65]         27/27
+ 8 friend rec                 12768 [11970-12928]       142/142             686 [519-708]       142/142
+ 9 danmu display                       72 [42-91]       382/382               80 [54-100]       382/382
+10 danmu send                       204 [161-350]     1016/1016             369 [286-393]     1016/1016
+11 user info                        277 [256-362]       500/500             125 [118-182]       500/500
+12 danmu like                                   -       500/500                         -       500/500
+13 coin                             547 [448-640]       511/511             567 [511-615]       511/511
+14 like                             591 [551-612]       686/686             686 [642-718]       686/686
+15 collect                          469 [440-630]       644/644             551 [550-642]       644/644
+16 post video                          55 [30-70]       184/184                64 [58-72]       184/184
+17 register                         109 [100-110]       273/273              118 [78-135]       273/273
+18 update video                        19 [16-27]       184/184                33 [33-47]       184/184
+19 review                              18 [15-20]         35/35                26 [24-33]         35/35
+20 search after update               100 [99-112]           5/6                   9 [8-9]           6/6
+21 delete video                     450 [439-450]         55/55             591 [533-593]         55/55
+22 delete account                   337 [297-365]       199/199             292 [291-319]       199/199
+23 follow                              47 [31-47]         87/87                56 [42-58]         87/87
 sum of median query-step times (steps 2-23, ms): {'baseline': 21903, 'optimized': 4433}
 total passed cases (min over runs): {'baseline': 5618, 'optimized': 5622} of 5622
 
