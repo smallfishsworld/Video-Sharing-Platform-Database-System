@@ -65,8 +65,8 @@ Commit `66edb47`. Each service in `io.sustc.service.impl` is a Spring bean with 
     - The row lock taken by the `UPDATE` serializes donations by one user, and PostgreSQL re-checks `coin > 0` on the newest version of the row.
     - A concurrent second donation to the same video fails on the `coins` primary key, and the whole statement, charge included, rolls back.
     - `VideoServiceTest` checks both cases with 8 threads. Donating to one video from an account with 10 coins, exactly one call succeeds and the balance is 9. Donating to 8 videos from an account with 1 coin, exactly one call succeeds and the balance is 0.
-- **Authentication** (`auth/Authenticator`) is one query. It returns the user's id and identity together, so the superuser check costs nothing extra. If both `qq` and `wechat` are given, they must belong to the same user.
-- **Visibility** (`support/VideoVisibility`) is one SQL predicate shared by search, like, coin and collect. A video is *published* once it is reviewed and its public time, if any, has passed. Unpublished videos are visible only to their owner and to superusers.
+- **Authentication** (`auth/Authenticator`) is one query in the common case, and a second (`qq`, then `wechat`) when `mid` and password do not match. It returns the user's id and identity together, so the superuser check costs nothing extra. If both `qq` and `wechat` are given, they must belong to the same user. An `AuthInfo` with only a `qq` or `wechat` value authenticates without a password, so those two columns are credentials too.
+- **Visibility** (`support/VideoVisibility`) is one SQL predicate shared by search, like, coin and collect. A video is *published* once it is reviewed and its public time, if any, has passed. Unpublished videos are visible only to their owner and to superusers. Danmus follow their own Javadoc: they can be sent to and displayed on published videos only, for every sender (the owner and superuser exception does not apply), and `likeDanmu` checks only that the danmu exists and that the user watched its video, without the visibility rule.
 - **Time** comes from the injected `Clock` (`config/ClockConfig`). `-Dsustc.clock.start=…` starts that clock at a given instant; the benchmark data assumes 2023-12-30 12:00 +08:00.
 - **Paging** (`support/Page`) validates sizes and numbers in one place and computes the offset in `long`, so large page numbers cannot overflow.
 - **Logging** goes through slf4j (Lombok `@Slf4j`); there are no `System.out` calls.
@@ -75,7 +75,7 @@ Commit `66edb47`. Each service in `io.sustc.service.impl` is a Spring bean with 
 
 `importer/BulkImporter`, `DeferredSchemaObjects`, `DerivedData`, `CopyRowWriter`, `ParallelTasks`. Commit `66edb47` and later. The steps:
 
-1. **Detach.** The importer reads the indexes, primary and unique constraints, foreign keys and `derived_*` triggers of every table from the catalog, keeps their definitions (`pg_get_indexdef`, `pg_get_constraintdef`, `pg_get_triggerdef`) and drops them. Nothing about the schema is hard-coded. A column or index added to `build.sql` is handled without touching the importer.
+1. **Detach.** The importer reads the indexes, primary and unique constraints, foreign keys and `derived_*` triggers of every table from the catalog, keeps their definitions (`pg_get_indexdef`, `pg_get_constraintdef`, `pg_get_triggerdef`) together with what those functions leave out (whether a constraint is deferrable or initially deferred, whether a foreign key was validated), and drops them. No table, index or constraint name is hard-coded, so a column or index added to `build.sql` needs no importer change. Objects it cannot drop and recreate exactly are refused before anything changes: indexes behind other constraint types (exclusion constraints), and comments on indexes, constraints or `derived_*` triggers.
 2. **Load.** Each table is loaded on its own connection by a `TRUNCATE` and a `COPY … FROM STDIN WITH (FREEZE)` in one transaction. `CopyRowWriter` streams text-format rows through pgjdbc's `CopyManager`. `FREEZE` writes the rows already frozen and marks the pages all-visible, so index-only scans work right after the import with no `VACUUM` pass. `DerivedData` computes `video_stats` and `video_coviews` from the records in memory, and they are loaded the same way.
 3. **Indexes.** The importer recreates the indexes in parallel, largest table first, and re-attaches the primary and unique constraints to them (`ADD CONSTRAINT … USING INDEX`).
 4. **Constraints.** The foreign keys are added `NOT VALID` and then validated, one table per task, and the triggers are recreated.
@@ -92,12 +92,12 @@ The pool has `sustc.import.parallelism` threads (default 4), each with one conne
 | constraints | 1,141 ms | 1,196 ms | 1,139 ms |
 | vacuum analyze | 215 ms | 207 ms | 229 ms |
 
-The benchmark step for the import takes 8,259 ms (median). That includes the benchmark reading its `.ser` files.
+The benchmark step for the import took 8,259 ms (median of the round-1 runs). It times only `DatabaseService.importData`: the empty-table check, the catalog capture and all import phases (the importer's own "Imported … in" figure plus 16–27 ms). The benchmark deserializes the `.ser` files before it starts its clock (`BenchmarkService.java:64-68`), for the baseline and this version alike.
 
 **Failure handling.**
-- If any step fails, the importer truncates every table and restores whatever schema objects are missing, then rethrows. The database is left empty with its complete schema.
-- `BulkImporterTest` injects a foreign-key violation and a duplicate key, then compares the catalog with a snapshot taken before the import.
-- This test found a bug, now fixed. After a failed validation, the foreign keys that had been added `NOT VALID` stayed unvalidated: 8 of them, in the run that exposed it. `restoreMissing` now validates every foreign key still marked `NOT VALID` (`DeferredSchemaObjects.NOT_VALIDATED_FOREIGN_KEYS`).
+- If any phase fails, the importer truncates every imported table and restores whatever schema objects are missing, then throws an `ImportException` that names the phase. The imported tables are left empty with their complete schema. The `users` audit log is not emptied: it keeps the failed attempt's `INSERT` records and the `TRUNCATE` records. A non-empty database is refused with an `IllegalStateException` before anything changes.
+- `BulkImporterTest` injects a foreign-key violation, a duplicate key and a failure during the load, then compares the catalog with a snapshot taken before the import and checks the audit trail. Other tests cover deferrable and `NOT VALID` constraints, a dropped identity column, refused schema objects, and both branches of the co-view computation (`DerivedDataTest`, against brute force).
+- This test found a bug, now fixed. After a failed validation, the foreign keys that had been added `NOT VALID` stayed unvalidated: 8 of them, in the run that exposed it. `restoreMissing` now validates the captured foreign keys that are still marked `NOT VALID` (`DeferredSchemaObjects.NOT_VALIDATED_FOREIGN_KEYS`), except those that were `NOT VALID` before the import, and recreates the triggers even if a validation fails.
 
 Imported row counts: users 37,881; videos 44; followings 5,958,770; viewers 874,856; videolikes 480,154; coins 447,153; favorites 430,622; danmus 322; danmulikes 11,068; video_stats 44; video_coviews 1,892 (`Imported …` line of `optimized-r1`'s log).
 
@@ -304,26 +304,31 @@ Command: `cd /home/user/work/bench6 && python3 -I compare.py m1=m1_core.json m2=
 
 ## Tests
 
-There are 103 tests (JUnit 5): `./gradlew build` runs them, and CI runs them on JDK 17 and 21.
+There are 142 tests (JUnit 5). `./gradlew build` runs them, plus `BulkImporterTest` a second time with the JVM in the benchmark's time zone (Asia/Shanghai, task `importerTestInBenchmarkZone`): 151 test executions. The CI workflow (`.github/workflows/ci.yml`) runs the same build on JDK 17 and 21, but it has not run on GitHub, because nothing has been pushed; see below for the local runs of its commands.
 
 **Setup.**
 - Integration tests extend `IntegrationTest`. It starts one `postgres:16-alpine` container for the whole run (Testcontainers 1.21.4) and wires it in with `@DynamicPropertySource`.
-- The container runs with `fsync`, `synchronous_commit` and `full_page_writes` off, which is safe for a disposable test database.
+- The container is initialized with locale C, like the benchmark database, and runs with `fsync`, `synchronous_commit` and `full_page_writes` off, which is safe for a disposable test database. `CollationIndependenceTest` builds the schema in a second database of the same container whose default collation is ICU en-US.
 - The schema is created once from `sql/`, and every test starts from truncated tables.
 - After each test, `noConnectionIsLeaked()` asserts that the Hikari pool has no active connection.
 
 | Class | Tests | What it covers |
 |---|---:|---|
-| `UserServiceTest` | 27 | registration rules, authentication, deletion rights and cascades, follow state, user info |
-| `VideoServiceTest` | 20 | post/update/review/delete, visibility, search relevance (the Javadoc examples), view rate, coin/like/collect, concurrent coin donations |
-| `DanmuServiceTest` | 8 | send rules, display ranges, the earliest-posted filter, danmu likes |
-| `RecommenderServiceTest` | 9 | similar videos with ties, general score with clamping, friends' videos, friend recommendations and their tie-breaks |
-| `DerivedDataConsistencyTest` | 5 | randomized workloads (seeds 1, 20231230, 424242; 400 steps each; 18 kinds of service call or multi-row SQL). Every 50 steps, `video_stats` and `video_coviews` must equal a recomputation from scratch, and each kind of action must have changed something. Also covers a rejected key update and stats rows following their videos |
-| `BulkImporterTest` | 5 | stored data equals the input, sequences continue after the import, the catalog is unchanged, statistics exist, non-empty tables are refused, and failure leaves an empty database with the complete schema |
-| `DatabaseServiceTest` | 3 | truncate, group members, the sum helper |
+| `UserServiceTest` | 28 | registration rules, authentication, deletion rights and cascades, follow state, user info |
+| `VideoServiceTest` | 23 | post/update/review/delete, visibility, search relevance (the Javadoc examples, non-ASCII case folding, pattern characters), view rate, coin/like/collect, concurrent coin donations |
+| `DanmuServiceTest` | 10 | send rules, display ranges, the earliest-posted filter and its tie-break, danmu likes |
+| `RecommenderServiceTest` | 10 | similar videos with ties, general score with clamping, unreviewed videos, friends' videos, friend recommendations and their tie-breaks |
+| `ConcurrencyTest` | 11 | concurrent toggles, edits and co-view updates (lost updates), crossing account deletions (a deadlock on every run, retried), a video and its liker deleted at once |
+| `TransactionCompositionTest` | 4 | refused writes inside a caller's transaction leave it usable |
+| `CollationIndependenceTest` | 5 | bv tie-breaks in byte order in a database whose default collation is ICU |
+| `DerivedDataConsistencyTest` | 5 | randomized workloads (seeds 1, 20231230, 424242; 400 steps each; 18 kinds of service call or multi-row SQL). Every 50 steps, `video_stats` and `video_coviews` must equal a recomputation from scratch, and each kind of action must have changed something |
+| `BulkImporterTest` | 9 | stored data equals the input, sequences continue, the catalog is unchanged, statistics exist, refusals, and failures (load, indexes, constraints) leave empty tables with the complete schema and an audit trail |
+| `DerivedDataTest` | 3 | the dense and the sparse co-view computation against brute force |
+| `DatabaseServiceTest` | 3 | truncate (the audit log keeps one `TRUNCATE` record), group members, the sum helper |
+| `WritesTest` | 5 | deadlock retries, SQLSTATE mapping |
 | `ServiceHelpersTest`, `ClockConfigTest`, `PageTest` | 26 | keyword splitting, birthdays, sex labels, the pinned clock, paging arithmetic |
 
-All 103 pass on JDK 21 on the host and on JDK 17 in an `eclipse-temurin:17-jdk` container. The GitHub Actions workflow (`.github/workflows/ci.yml`) has not run yet, because nothing has been pushed.
+**Do the concurrency tests test anything?** They were run against the code before the fixes (commit `978fe40` with the new tests copied in). There, the gated toggle tests, the edit test, the co-view tests and the 8-thread toggle test fail (8 of 11 in `ConcurrencyTest`; output in the round-2 notes below), and the crossing-deletion test fails with `deadlock detected`. After the fixes all pass.
 
 ## Tried and rejected
 
@@ -341,7 +346,7 @@ All 103 pass on JDK 21 on the host and on JDK 17 in an `eclipse-temurin:17-jdk` 
 
 ## Interpretations of the specification
 
-The interfaces' Javadoc leaves some cases open. Each choice below keeps the result well defined and is covered by a test.
+The interfaces' Javadoc leaves some cases open. Each choice below keeps the result well defined. The service test classes cover them; the four that the round-1 review found untested (unreviewed videos in recommendations, an empty sign, `likeDanmu` on an unpublished video, the filter's tie-break by id) now have tests too.
 
 **Videos and visibility**
 - A video is *published* when it has been reviewed and its public time, if it has one, is not after "now". A `NULL` public time means no embargo. Unpublished videos are visible only to their owner and superusers, in search and in like, coin and collect.
@@ -350,7 +355,8 @@ The interfaces' Javadoc leaves some cases open. Each choice below keeps the resu
 - Search breaks ties in relevance by view count, as specified, and then by `bv`, so that pages are stable. Keywords are separated by spaces, and runs of spaces do not create empty keywords.
 
 **Danmu**
-- `sendDanmu` requires a published video that the user has watched, and `0 ≤ time ≤ duration`. Owners and superusers get no exception: a video without an audience has no viewers to send danmus.
+- `sendDanmu` requires a published video that the user has watched, and `0 ≤ time ≤ duration`. Owners and superusers get no exception: the Javadoc rejects unpublished videos for every sender, so the owner and superuser exception of the visibility rule does not apply.
+- `likeDanmu` checks only that the danmu exists and that the user watched its video, as its Javadoc says; it does not apply the visibility rule.
 - `displayDanmu` accepts `timeStart == timeEnd`. The Javadoc lists "`timeStart <= timeEnd`" as invalid, which would reject every range, so it is read as `timeStart > timeEnd`. Both ends must be within `[0, duration]`, and the video must be published.
 - With `filter`, the danmu kept for each content is the earliest *posted* one within the range, ties broken by id. The result is sorted by time, then id.
 
