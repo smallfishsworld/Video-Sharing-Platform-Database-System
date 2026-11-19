@@ -5,7 +5,8 @@
 --     primary-key lookup. The reverse direction (everything a user did) has a covering
 --     (user, object) index, so both directions can be answered by index-only scans.
 --   * Foreign keys cascade on delete: deleting a user or a video removes everything that
---     references it inside the same statement, so no orphan rows can be left behind.
+--     references it inside the same statement, so no orphan rows can be left behind. The one
+--     exception is video_coviews, whose rows a trigger deletes (see there).
 --   * Real-valued data (durations, view times, danmu times) is double precision so that sums and
 --     averages are not accumulated in float4.
 --   * The bulk importer (BulkImporter) drops the indexes, foreign keys and derived_* triggers
@@ -123,9 +124,13 @@ create function fold_case(t text) returns text
 -- statement costs one set-based update no matter how many rows it touches. Each trigger updates
 -- its rows in key order, so two firings of one trigger lock the counters they share in the same
 -- order. That order holds within one firing only: a DELETE that cascades fires one trigger per
--- cascaded table, so two concurrent cascading deletes (two accounts, or a video and one of its
--- likers) can still lock in crossing orders and deadlock. The services retry a write that loses a
--- deadlock (support/Writes.java).
+-- cascaded table, each locking its own counters, so two cascading deletes that ran at the same
+-- time could lock shared counters in crossing orders and deadlock. The services therefore never
+-- run two deletions that can cross: deleteAccount takes an exclusive advisory lock before it
+-- deletes and deleteVideo a shared one (support/Writes.java). Deleting a video changes no counter
+-- of another video; two video deletions share only the co-view rows between the two videos,
+-- which derived_videos deletes in key order. Writes other than deletions lock one counter row
+-- each, after the rows they insert or delete and the rows their foreign-key checks lock.
 --
 -- TRUNCATE fires no row triggers: truncate the derived tables together with their sources (the
 -- service's truncate() truncates every table). BulkImporter drops the derived_* triggers while it
@@ -147,27 +152,47 @@ create table video_stats (
 
 -- For every ordered pair of distinct videos that share at least one viewer: the number of users
 -- who watched both. Both directions are stored, so the neighbours of a video are one index range.
+-- The rows reference videos without foreign keys: deleting a video deletes its rows in both
+-- directions through derived_videos, in one pass in key order. Two cascades (one per direction)
+-- would delete them in two passes, and two videos deleted at once would take the rows between
+-- them in crossing orders: (a, b) then (b, a) for one, (b, a) then (a, b) for the other.
 create table video_coviews (
-    bv       varchar not null references videos (bv) on delete cascade,
-    other_bv varchar not null references videos (bv) on delete cascade,
+    bv       varchar not null,
+    other_bv varchar not null,
     viewers  integer not null check (viewers > 0),
     primary key (bv, other_bv)
 );
 create index video_coviews_other_bv_idx on video_coviews (other_bv);
 
+-- A new video gets its counters row; a deleted video's counters row goes by cascade and its
+-- co-view rows are deleted here, after locking them in key order (see video_coviews). The trigger
+-- fires after the deleted video's interactions have been deleted, so the co-view rows are locked
+-- late in the deletion, and two video deletions overlap until then.
 create function derived_videos() returns trigger
     language plpgsql as
 $$
 begin
-    insert into video_stats (bv)
-    select bv from new_rows order by bv
-    on conflict do nothing;
+    if tg_op = 'INSERT' then
+        insert into video_stats (bv)
+        select bv from new_rows order by bv
+        on conflict do nothing;
+        return null;
+    end if;
+    perform from video_coviews c
+    where c.bv in (select bv from old_rows) or c.other_bv in (select bv from old_rows)
+    order by c.bv, c.other_bv
+    for update of c;
+    delete from video_coviews c
+    where c.bv in (select bv from old_rows) or c.other_bv in (select bv from old_rows);
     return null;
 end
 $$;
 
 create trigger derived_videos_insert
     after insert on videos referencing new table as new_rows
+    for each statement execute function derived_videos();
+create trigger derived_videos_delete
+    after delete on videos referencing old table as old_rows
     for each statement execute function derived_videos();
 
 -- One counter per interaction table; tg_table_name selects it. Every change is a single upsert of
