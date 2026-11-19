@@ -1,6 +1,7 @@
 package io.sustc.service.impl.support;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.util.Set;
@@ -10,6 +11,7 @@ import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.UncategorizedSQLException;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -38,6 +40,40 @@ public final class Writes {
 
     /** The pause before attempt n is uniformly random in [1, n * this) milliseconds. */
     private static final int BACKOFF_MILLIS_PER_ATTEMPT = 10;
+
+    /**
+     * The first statement of a call that must not race with the same user's other writes of that
+     * kind (the toggles): a transaction-scoped advisory lock keyed on the acting user's mid.
+     *
+     * <p>Under READ COMMITTED a statement sees what was committed before it started. Two
+     * concurrent toggles of one row both start before either commits: one deletes or inserts the
+     * row, the other finds nothing to delete, its insert does nothing ON CONFLICT, and it reports
+     * a stale state, so one toggle is lost. A lock inside the toggle statement would not help,
+     * because that statement's snapshot is older than the wait. The lock is therefore a statement
+     * of its own: the toggle that follows starts after the lock is granted and sees every toggle
+     * that committed before.
+     *
+     * <p>Both statements go to the server in one round trip. With autocommit, pgjdbc sends them
+     * before a single Sync message, and PostgreSQL runs everything up to a Sync as one implicit
+     * transaction, so the lock is held until the toggle commits. Inside a caller's transaction the
+     * lock is held until that transaction ends. Advisory locks live in shared memory; taking one
+     * writes no WAL and dirties no page. Keys of one-argument advisory locks are user mids.
+     */
+    public static final String LOCK_ACTING_USER = "select pg_advisory_xact_lock(:me);\n";
+
+    /**
+     * Executes a call made of {@link #LOCK_ACTING_USER} and one statement that returns a single
+     * boolean, and returns that boolean ({@code false} if the statement returned no row).
+     */
+    public static final PreparedStatementCallback<Boolean> RESULT_AFTER_LOCK = ps -> {
+        ps.execute();
+        if (!ps.getMoreResults()) {
+            throw new IllegalStateException("The statement after the lock returned no result set");
+        }
+        try (ResultSet rs = ps.getResultSet()) {
+            return rs.next() && rs.getBoolean(1);
+        }
+    };
 
     private static final Set<String> RETRYABLE = Set.of("40P01", "40001");
     private static final Set<String> NOT_DONE = Set.of("23503", "23505");

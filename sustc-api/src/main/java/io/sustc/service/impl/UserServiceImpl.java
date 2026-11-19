@@ -55,9 +55,13 @@ public class UserServiceImpl implements UserService {
               and (mid = :me or (:superuser and identity = :regularIdentity))
             """;
 
-    /** Toggles the relation and reports whether the user follows the followee afterwards. */
-    private static final String TOGGLE_FOLLOW =
-            """
+    /**
+     * Toggles the relation and reports whether the user follows the followee afterwards. Runs
+     * after {@link Writes#LOCK_ACTING_USER}, so concurrent toggles by one user are applied one
+     * after the other.
+     */
+    private static final String TOGGLE_FOLLOW = Writes.LOCK_ACTING_USER
+            + """
             with followee as (
                 select mid from users where mid = :followee and mid <> :me
             ),
@@ -148,7 +152,7 @@ public class UserServiceImpl implements UserService {
         }
         MapSqlParameterSource params =
                 new MapSqlParameterSource().addValue("me", me.get().mid()).addValue("followee", followeeMid);
-        return Boolean.TRUE.equals(jdbc.queryForObject(TOGGLE_FOLLOW, params, Boolean.class));
+        return Writes.run(dataSource, () -> jdbc.execute(TOGGLE_FOLLOW, params, Writes.RESULT_AFTER_LOCK), false);
     }
 
     @Override

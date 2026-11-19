@@ -70,9 +70,14 @@ public class DanmuServiceImpl implements DanmuService {
             """
                     .formatted(VideoVisibility.PUBLISHED);
 
-    /** Toggles the like of a danmu whose video the user has watched; returns the new state. */
-    private static final String TOGGLE_LIKE =
-            """
+    /**
+     * Toggles the like of a danmu whose video the user has watched; returns the new state. As the
+     * Javadoc says, it checks only that the danmu exists and that the user watched its video; it
+     * does not apply the visibility rule. Runs after {@link Writes#LOCK_ACTING_USER}, so concurrent
+     * toggles by one user are applied one after the other.
+     */
+    private static final String TOGGLE_LIKE = Writes.LOCK_ACTING_USER
+            + """
             with target as (
                 select d.id from danmus d
                 where d.id = :id and exists (select 1 from viewers w where w.bv = d.bv and w.mid = :me)
@@ -149,7 +154,7 @@ public class DanmuServiceImpl implements DanmuService {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("me", me.get().mid());
-        return Boolean.TRUE.equals(jdbc.queryForObject(TOGGLE_LIKE, params, Boolean.class));
+        return Writes.run(dataSource, () -> jdbc.execute(TOGGLE_LIKE, params, Writes.RESULT_AFTER_LOCK), false);
     }
 
     private Timestamp now() {

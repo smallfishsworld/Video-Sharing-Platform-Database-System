@@ -155,9 +155,13 @@ public class VideoServiceImpl implements VideoService {
             """
                     .formatted(VideoVisibility.VISIBLE_TO_ME);
 
-    /** Like/collect toggle: removes the row if present, inserts it otherwise; returns the new state. */
-    private static final String TOGGLE =
-            """
+    /**
+     * Like/collect toggle: removes the row if present, inserts it otherwise; returns the new state.
+     * The toggle runs after {@link Writes#LOCK_ACTING_USER}, so concurrent toggles by one user are
+     * applied one after the other.
+     */
+    private static final String TOGGLE = Writes.LOCK_ACTING_USER
+            + """
             with target as (
                 select v.bv from videos v
                 where v.bv = :bv and v.owner_mid <> :me and %s
@@ -337,7 +341,7 @@ public class VideoServiceImpl implements VideoService {
             return false;
         }
         MapSqlParameterSource params = VideoVisibility.bind(me.get(), now()).addValue("bv", bv);
-        return Boolean.TRUE.equals(jdbc.queryForObject(sql, params, Boolean.class));
+        return Writes.run(dataSource, () -> jdbc.execute(sql, params, Writes.RESULT_AFTER_LOCK), false);
     }
 
     /** The checks shared by postVideo and updateVideoInfo. */
