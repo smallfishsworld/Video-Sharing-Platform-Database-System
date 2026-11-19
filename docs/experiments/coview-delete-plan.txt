@@ -1,0 +1,88 @@
+# psql -X -q -d r3scratch -f docs/experiments/coview-delete-plan.sql   (a scratch database; 2026-11-19T14:35:29Z, PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1))
+# (the "psql:FILE:LINE: NOTICE:" prefix of each line is removed)
+== a video without co-view rows
+-- 1 deleted video(s); 1717da9: bv in (...) or other_bv in (...)
+LockRows (actual rows=0 loops=1)
+  ->  Sort (actual rows=0 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 25kB
+        ->  Seq Scan on video_coviews c (actual rows=0 loops=1)
+              Filter: ((hashed SubPlan 1) OR (hashed SubPlan 2))
+              Rows Removed by Filter: 1892
+              SubPlan 1
+                ->  Named Tuplestore Scan (actual rows=1 loops=1)
+              SubPlan 2
+                ->  Named Tuplestore Scan (actual rows=1 loops=1)
+-- ac3a0dc: join old_rows o on c.bv = o.bv or c.other_bv = o.bv
+LockRows (actual rows=0 loops=1)
+  ->  Sort (actual rows=0 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 25kB
+        ->  Nested Loop (actual rows=0 loops=1)
+              ->  Named Tuplestore Scan (actual rows=1 loops=1)
+              ->  Bitmap Heap Scan on video_coviews c (actual rows=0 loops=1)
+                    Recheck Cond: (((bv)::text = (o.bv)::text) OR ((other_bv)::text = (o.bv)::text))
+                    ->  BitmapOr (actual rows=0 loops=1)
+                          ->  Bitmap Index Scan on video_coviews_pkey (actual rows=0 loops=1)
+                                Index Cond: ((bv)::text = (o.bv)::text)
+                          ->  Bitmap Index Scan on video_coviews_other_bv_idx (actual rows=0 loops=1)
+                                Index Cond: ((other_bv)::text = (o.bv)::text)
+== two co-viewed videos
+-- 2 deleted video(s); 1717da9: bv in (...) or other_bv in (...)
+LockRows (actual rows=170 loops=1)
+  ->  Sort (actual rows=170 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 31kB
+        ->  Seq Scan on video_coviews c (actual rows=170 loops=1)
+              Filter: ((hashed SubPlan 1) OR (hashed SubPlan 2))
+              Rows Removed by Filter: 1722
+              SubPlan 1
+                ->  Named Tuplestore Scan (actual rows=2 loops=1)
+              SubPlan 2
+                ->  Named Tuplestore Scan (actual rows=2 loops=1)
+-- ac3a0dc: join old_rows o on c.bv = o.bv or c.other_bv = o.bv
+LockRows (actual rows=172 loops=1)
+  ->  Sort (actual rows=172 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 36kB
+        ->  Nested Loop (actual rows=172 loops=1)
+              ->  Named Tuplestore Scan (actual rows=2 loops=1)
+              ->  Bitmap Heap Scan on video_coviews c (actual rows=86 loops=2)
+                    Recheck Cond: (((bv)::text = (o.bv)::text) OR ((other_bv)::text = (o.bv)::text))
+                    Heap Blocks: exact=22
+                    ->  BitmapOr (actual rows=0 loops=2)
+                          ->  Bitmap Index Scan on video_coviews_pkey (actual rows=43 loops=2)
+                                Index Cond: ((bv)::text = (o.bv)::text)
+                          ->  Bitmap Index Scan on video_coviews_other_bv_idx (actual rows=43 loops=2)
+                                Index Cond: ((other_bv)::text = (o.bv)::text)
+== no video (what the cascade from users into videos does for a user without videos)
+-- 0 deleted video(s); 1717da9: bv in (...) or other_bv in (...)
+LockRows (actual rows=0 loops=1)
+  ->  Sort (actual rows=0 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 25kB
+        ->  Seq Scan on video_coviews c (actual rows=0 loops=1)
+              Filter: ((hashed SubPlan 1) OR (hashed SubPlan 2))
+              Rows Removed by Filter: 1892
+              SubPlan 1
+                ->  Named Tuplestore Scan (actual rows=0 loops=1)
+              SubPlan 2
+                ->  Named Tuplestore Scan (actual rows=0 loops=1)
+-- ac3a0dc: join old_rows o on c.bv = o.bv or c.other_bv = o.bv
+LockRows (actual rows=0 loops=1)
+  ->  Sort (actual rows=0 loops=1)
+        Sort Key: c.bv, c.other_bv
+        Sort Method: quicksort  Memory: 25kB
+        ->  Nested Loop (actual rows=0 loops=1)
+              ->  Named Tuplestore Scan (actual rows=0 loops=1)
+              ->  Bitmap Heap Scan on video_coviews c (never executed)
+                    Recheck Cond: (((bv)::text = (o.bv)::text) OR ((other_bv)::text = (o.bv)::text))
+                    ->  BitmapOr (never executed)
+                          ->  Bitmap Index Scan on video_coviews_pkey (never executed)
+                                Index Cond: ((bv)::text = (o.bv)::text)
+                          ->  Bitmap Index Scan on video_coviews_other_bv_idx (never executed)
+                                Index Cond: ((other_bv)::text = (o.bv)::text)
+drop cascades to 3 other objects
+DETAIL:  drop cascades to table videos
+drop cascades to table video_coviews
+drop cascades to function show_plans()
