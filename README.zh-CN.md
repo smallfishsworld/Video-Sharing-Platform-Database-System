@@ -247,7 +247,7 @@ cd sustc-runner && docker compose up -d && cd ..
 # 在新建的 schema 上运行一次基准测试，结果写入 docs/benchmark/<label>.json
 scripts/benchmark.sh --label my-run
 
-# 根据 docs/benchmark/baseline-*.json 和 optimized-*.json 重新生成 README 中的表格
+# 根据 docs/benchmark/round1/baseline-*.json 和 optimized-*.json 重新生成 README 中的表格
 python3 scripts/bench_table.py --write README.md README.zh-CN.md
 
 # 交互式命令行

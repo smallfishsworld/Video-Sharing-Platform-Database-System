@@ -22,7 +22,7 @@ All timings come from one machine: 4 vCPUs, 16 GB of RAM, and PostgreSQL 16 with
 
 ## Starting point
 
-The original implementation passes 5,618 of the 5,622 benchmark cases in each of its three runs (`docs/benchmark/baseline-r*.json`). The benchmark logs and the code at `2e811bd` show why. They also show problems that the benchmark does not check:
+The original implementation passes 5,618 of the 5,622 benchmark cases in each of its three runs (`docs/benchmark/round1/baseline-r*.json`). The benchmark logs and the code at `2e811bd` show why. They also show problems that the benchmark does not check:
 
 - **The four failures.** Three searches fail because `keywords.split(" ")` turns repeated spaces into empty keywords. `regexp_split_to_array(title, '')` then splits the title into single characters, so every video matches. The keywords are also used as regular expressions. The fourth failure is one view rate that is off in the fourth digit (expected 0.5450836, got 0.5451384): view times are stored as `real` and summed with `sum(real)`. The original reads `Instant.now()`. The build of it that the harness measured adds a constant offset, kept outside this repository, so it starts at the same pinned time as the current code.
 - **Writes are sequences of autocommit statements.** `coinVideo` reads the balance, checks for an earlier donation, inserts the donation and then writes back a balance computed in Java. Two concurrent donations by one user can therefore spend the same coin. `follow` returns `true` even when it unfollows.
@@ -298,9 +298,9 @@ What each checkpoint changed:
 - **m3 upsert.** The counter triggers became one sorted upsert each, and the counter `CHECK`s were dropped.
 - **m4 friends.** The friend query applies the anti-join after the aggregation, which was the cheapest of the variants compared over all 133 valid calls. The viewers delete trigger became a single pass.
 
-`docs/benchmark/dev/script-check.json` is one run of `scripts/benchmark.sh` on the final code. It shows that the script in this repository reproduces the procedure: 5,622 / 5,622 passed, an import of 8,471 ms, and 3,899 ms for steps 2–23.
+`docs/benchmark/round1/dev/script-check.json` is one run of `scripts/benchmark.sh` on the final code. It shows that the script in this repository reproduces the procedure: 5,622 / 5,622 passed, an import of 8,471 ms, and 3,899 ms for steps 2–23.
 
-Command: `cd /home/user/work/bench6 && python3 -I compare.py m1=m1_core.json m2=m2_derived.json m3=m3_upsert.json m4=m4_friends.json` (the same files as in `docs/benchmark/dev`).
+Command: `cd /home/user/work/bench6 && python3 -I compare.py m1=m1_core.json m2=m2_derived.json m3=m3_upsert.json m4=m4_friends.json` (the same files as in `docs/benchmark/round1/dev`).
 
 ## Tests
 

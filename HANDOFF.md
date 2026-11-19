@@ -38,7 +38,7 @@ scripts/write_latency.sh             # regenerate docs/experiments/write-latency
 
 **Test data.** The course's `.ser` files are not in the repository. Put them in `sustc-runner/data/import/` and `sustc-runner/data/test/`.
 
-**How the recorded runs were made.** The official runs (`docs/benchmark/baseline-*.json`, `optimized-*.json`) were made with a harness script outside the repository, under `flock`. `scripts/benchmark.sh` does the same steps with the same JVM flags. `docs/benchmark/dev/script-check.json` is one run of it on the final code: 5,622 passed, and 3,899 ms for steps 2–23.
+**How the recorded runs were made.** The official runs (`docs/benchmark/round1/baseline-*.json`, `round1/optimized-*.json`) were made with a harness script outside the repository, under `flock`. `scripts/benchmark.sh` does the same steps with the same JVM flags. `docs/benchmark/round1/dev/script-check.json` is one run of it on the final code: 5,622 passed, and 3,899 ms for steps 2–23.
 
 ## Where things are
 

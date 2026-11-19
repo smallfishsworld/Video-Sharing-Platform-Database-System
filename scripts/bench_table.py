@@ -142,7 +142,7 @@ def table(before, after, n_before, n_after, lang):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs",
-                                                      "benchmark"))
+                                                      "benchmark", "round1"))
     parser.add_argument("--write", nargs="*", default=[], metavar="FILE")
     args = parser.parse_args()
 

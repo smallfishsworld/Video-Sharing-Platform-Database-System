@@ -247,7 +247,7 @@ cd sustc-runner && docker compose up -d && cd ..
 # One benchmark run against a fresh schema; writes docs/benchmark/<label>.json
 scripts/benchmark.sh --label my-run
 
-# Rebuild the README table from docs/benchmark/baseline-*.json and optimized-*.json
+# Rebuild the README table from docs/benchmark/round1/baseline-*.json and optimized-*.json
 python3 scripts/bench_table.py --write README.md README.zh-CN.md
 
 # Interactive shell
