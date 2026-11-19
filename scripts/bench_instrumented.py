@@ -208,7 +208,7 @@ def main():
     meta = {
         "label": a.label, "repo": repo,
         "code_sha": sh("git", "-C", repo, "rev-parse", "HEAD"),
-        "porcelain_lines": len([l for l in sh("git", "-C", repo, "status", "--porcelain").splitlines() if l]),
+        "porcelain_lines": len([l for l in sh("git", "-C", repo, "status", "--porcelain", "--untracked-files=no").splitlines() if l]),
         "jar_sha256": hashlib.sha256(open(jar, "rb").read()).hexdigest(),
         "sql": a.sql, "variant": "settle" if a.settle else "analyze" if a.analyze else "plain",
         "boot": sh("uptime", "-s"),
