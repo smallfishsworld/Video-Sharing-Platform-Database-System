@@ -5,6 +5,10 @@
 services:
   db:
     image: postgres:16-alpine
+    # PostgreSQL keeps the shared state of parallel index builds and VACUUM in /dev/shm. Docker's
+    # default of 64 MB is too small for the importer's concurrent VACUUM (ANALYZE) runs, which
+    # then fail with "could not resize shared memory segment ... No space left on device".
+    shm_size: 1gb
     ports:
       - '127.0.0.1:${SUSTC_DB_PORT:-5432}:5432'
     volumes:

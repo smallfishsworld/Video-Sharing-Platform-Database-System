@@ -1,0 +1,17 @@
+# The README quick start with sustc-runner/compose.yml (postgres:16-alpine, a local image, no download),
+# run on 2026-11-19 under one hold of /home/user/work/bench.lock each, at commit 133bbbf:
+#   ./gradlew --no-daemon --offline --max-workers=2 --no-build-cache :sustc-runner:bootJar
+#   cd sustc-runner && SUSTC_DB_PORT=55432 docker compose up -d      # the host's own server uses 5432
+#   (then wait until pg_isready -h 127.0.0.1 -p 55432 succeeds)
+#   PGPORT=55432 scripts/benchmark.sh --label qs-check --out <scratch dir> --no-build
+#   cd sustc-runner && SUSTC_DB_PORT=55432 docker compose down; rm -rf sustc-runner/data/postgresql
+# Server: PostgreSQL 16.16 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+
+== 18:42 UTC, compose.yml without shm_size (Docker's default /dev/shm size, 64 MB; not measured in this run)
+The import failed in its last phase (Import phase 'vacuum analyze' failed; SQL vacuum (analyze) "followings"):
+  ERROR: could not resize shared memory segment "/PostgreSQL.3588268766" to 56283040 bytes: No space left on device
+so every later step ran on empty tables. Benchmark cases passed: 2,309 of 5,622.
+
+== 18:44 UTC, compose.yml with shm_size: 1gb (df -h /dev/shm in the container: 1.0G)
+Import phases: load 2,480 ms, indexes 4,792 ms, constraints 1,281 ms, vacuum analyze 331 ms (one run,
+not a timing comparison). Benchmark cases passed: 5,622 of 5,622; no exception in the log.
