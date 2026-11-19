@@ -88,8 +88,10 @@ public class VideoServiceImpl implements VideoService {
 
     /**
      * Relevance is the total number of non-overlapping, case-insensitive occurrences of every
-     * keyword in the title, description and owner name. Ties are broken by view count (kept in
-     * video_stats), then by bv so that pages are stable.
+     * keyword in the title, description and owner name. fold_case (sql/build.sql) lowercases with
+     * an explicit ICU collation, so matching does not depend on the database locale. Ties are
+     * broken by view count (kept in video_stats), then by bv in byte order (collate "C"), so that
+     * pages are stable and, for the ASCII bvs, ordered like Java strings on any server.
      */
     private static final String SEARCH =
             """
@@ -97,14 +99,14 @@ public class VideoServiceImpl implements VideoService {
             from videos v
             join video_stats s on s.bv = v.bv
             cross join lateral (
-                select sum(count_occurrences(lower(v.title), k.word)
-                         + count_occurrences(lower(coalesce(v.description, '')), k.word)
-                         + count_occurrences(lower(v.owner_name), k.word)) as relevance
-                from (select lower(w) as word from unnest(:keywords) as w) k
+                select sum(count_occurrences(fold_case(v.title), k.word)
+                         + count_occurrences(fold_case(coalesce(v.description, '')), k.word)
+                         + count_occurrences(fold_case(v.owner_name), k.word)) as relevance
+                from (select fold_case(w) as word from unnest(:keywords) as w) k
             ) r
             where r.relevance > 0
               and %s
-            order by r.relevance desc, s.viewers desc, v.bv
+            order by r.relevance desc, s.viewers desc, v.bv collate "C"
             limit :limit offset :offset
             """
                     .formatted(VideoVisibility.VISIBLE_TO_ME);

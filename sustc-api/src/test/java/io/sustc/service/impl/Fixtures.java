@@ -75,7 +75,22 @@ final class Fixtures {
     }
 
     String video(long owner, String title, String description, double duration, boolean reviewed, Instant publicTime) {
-        String bv = "BVtest%05d".formatted(++videoCounter);
+        return video("BVtest%05d".formatted(++videoCounter), owner, title, description, duration, reviewed, publicTime);
+    }
+
+    /** A reviewed, public video with the given bv. */
+    String videoWithBv(String bv, long owner, String title) {
+        return video(bv, owner, title, null, DEFAULT_DURATION, true, now().minus(Duration.ofHours(1)));
+    }
+
+    private String video(
+            String bv,
+            long owner,
+            String title,
+            String description,
+            double duration,
+            boolean reviewed,
+            Instant publicTime) {
         Timestamp commit = ts(now().minus(Duration.ofDays(1)));
         jdbc.update(
                 "insert into videos (bv, title, owner_mid, owner_name, commit_time, review_time, reviewer,"

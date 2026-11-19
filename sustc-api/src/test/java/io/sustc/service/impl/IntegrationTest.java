@@ -31,9 +31,14 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest(classes = TestApplication.class)
 abstract class IntegrationTest {
 
-    /** Durability is irrelevant for a throwaway test database; these settings only speed it up. */
+    /**
+     * Initialized with locale C, like the measured benchmark database, so that locale-dependent
+     * behaviour (case folding, collation) shows up here as it does there. Durability is
+     * irrelevant for a throwaway test database; the three settings only speed it up.
+     */
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
                     DockerImageName.parse("postgres:16-alpine"))
+            .withEnv("POSTGRES_INITDB_ARGS", "--locale=C --encoding=UTF8")
             .withCommand("postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off");
 
     private static boolean schemaCreated;

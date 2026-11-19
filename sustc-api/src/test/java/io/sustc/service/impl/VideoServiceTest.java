@@ -223,6 +223,36 @@ class VideoServiceTest extends IntegrationTest {
         assertThat(videos.searchVideo(fx.auth(viewer), "nothing", 10, 1)).isEmpty();
     }
 
+    /**
+     * The benchmark database has LC_CTYPE=C, where lower() folds only ASCII; the integration
+     * tests run with locale C as well, so this fails if the fold depends on the locale.
+     */
+    @Test
+    void searchFoldsCaseBeyondAscii() {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String elan = fx.video(owner, "Élan vital");
+        String strasse = fx.video(owner, "STRASSE und ΣΟΦΙΑ");
+
+        assertThat(videos.searchVideo(fx.auth(viewer), "élan", 10, 1)).containsExactly(elan);
+        assertThat(videos.searchVideo(fx.auth(viewer), "ÉLAN", 10, 1)).containsExactly(elan);
+        assertThat(videos.searchVideo(fx.auth(viewer), "σοφια", 10, 1)).containsExactly(strasse);
+    }
+
+    @Test
+    void searchTreatsPatternCharactersLiterally() {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String percent = fx.video(owner, "100%_off today");
+        String dots = fx.video(owner, "a.b* and a?b");
+        fx.video(owner, "100 off");
+        fx.video(owner, "axb");
+
+        assertThat(videos.searchVideo(fx.auth(viewer), "100%_off", 10, 1)).containsExactly(percent);
+        assertThat(videos.searchVideo(fx.auth(viewer), "a.b*", 10, 1)).containsExactly(dots);
+        assertThat(videos.searchVideo(fx.auth(viewer), "%", 10, 1)).containsExactly(percent);
+    }
+
     @Test
     void searchBreaksTiesByViewsThenBv() {
         long owner = fx.user("owner");

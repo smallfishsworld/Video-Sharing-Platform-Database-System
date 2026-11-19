@@ -19,7 +19,8 @@ public class RecommenderServiceImpl implements RecommenderService {
 
     /**
      * One row (the top bvs, possibly none) if the video exists, no row otherwise. Similarity is
-     * the number of users who watched both videos (kept in video_coviews); ties are broken by bv.
+     * the number of users who watched both videos (kept in video_coviews); ties are broken by bv
+     * in byte order (collate "C"), which for the ASCII bvs is Java's String order, on any server.
      */
     private static final String SIMILAR =
             """
@@ -27,7 +28,7 @@ public class RecommenderServiceImpl implements RecommenderService {
                 select c.other_bv
                 from video_coviews c
                 where c.bv = v.bv
-                order by c.viewers desc, c.other_bv
+                order by c.viewers desc, c.other_bv collate "C"
                 limit :limit)
             from videos v
             where v.bv = :bv
@@ -50,7 +51,7 @@ public class RecommenderServiceImpl implements RecommenderService {
                              + s.danmus::double precision / s.viewers
                              + s.view_time_sum / s.viewers / v.duration
                      end desc,
-                     v.bv
+                     v.bv collate "C"
             limit :limit offset :offset
             """;
 
@@ -74,7 +75,7 @@ public class RecommenderServiceImpl implements RecommenderService {
             join users owner on owner.mid = v.owner_mid
             where not exists (select 1 from viewers mine where mine.bv = w.bv and mine.mid = :me)
             group by w.bv, owner.level, v.public_time
-            order by count(*) desc, owner.level desc, v.public_time desc nulls last, w.bv
+            order by count(*) desc, owner.level desc, v.public_time desc nulls last, w.bv collate "C"
             limit :limit offset :offset
             """;
 

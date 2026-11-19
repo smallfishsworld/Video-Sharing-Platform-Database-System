@@ -102,11 +102,18 @@ create table danmulikes (
 );
 create index danmulikes_mid_idx on danmulikes (mid);
 
--- Number of non-overlapping occurrences of needle in haystack (case-sensitive; callers lower()
--- both sides). replace() removes occurrences left to right, exactly like a greedy scan.
+-- Number of non-overlapping occurrences of needle in haystack (case-sensitive; callers fold both
+-- sides with fold_case). replace() removes occurrences left to right, exactly like a greedy scan.
 create function count_occurrences(haystack text, needle text) returns integer
     language sql immutable strict parallel safe
     return (length(haystack) - length(replace(haystack, needle, ''))) / length(needle);
+
+-- Lowercases with the ICU root locale, so case-insensitive search folds every script the same way
+-- whatever the database locale is (lower() under LC_CTYPE=C folds only ASCII). Needs a server
+-- built with ICU, which the PostgreSQL packages and the official Docker images are.
+create function fold_case(t text) returns text
+    language sql immutable strict parallel safe
+    return lower(t collate "und-x-icu");
 
 -- Derived data -----------------------------------------------------------------------------------
 --
