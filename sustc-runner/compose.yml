@@ -1,13 +1,15 @@
-version: '3.1'
-
+# A PostgreSQL 16 database for the runner: user, password and database are all "sustc", as in
+# src/main/resources/application.yml. The official image, in the variant that the tests use
+# (postgres:16-alpine), keeps its data in ./data/postgresql (ignored by git). If port 5432 is
+# taken, start it with SUSTC_DB_PORT=<port> and pass PGPORT=<port> to scripts/benchmark.sh.
 services:
   db:
-    image: bitnami/postgresql:16
+    image: postgres:16-alpine
     ports:
-      - '5432:5432'
+      - '127.0.0.1:${SUSTC_DB_PORT:-5432}:5432'
     volumes:
-      - ./data/postgresql:/bitnami/postgresql
+      - ./data/postgresql:/var/lib/postgresql/data
     environment:
-      - POSTGRESQL_USERNAME=sustc
-      - POSTGRESQL_PASSWORD=sustc
-      - POSTGRESQL_DATABASE=sustc
+      - POSTGRES_USER=sustc
+      - POSTGRES_PASSWORD=sustc
+      - POSTGRES_DB=sustc
