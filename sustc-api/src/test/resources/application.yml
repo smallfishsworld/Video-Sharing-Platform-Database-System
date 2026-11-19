@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 12
+logging:
+  level:
+    root: warn
+    io.sustc: info

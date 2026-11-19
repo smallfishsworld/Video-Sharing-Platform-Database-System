@@ -68,6 +68,16 @@ final class DeferredSchemaObjects {
             order by t.relname, g.tgname
             """;
 
+    /** VALIDATE statements for the foreign keys of the current schema that are still NOT VALID. */
+    private static final String NOT_VALIDATED_FOREIGN_KEYS =
+            """
+            select format('alter table %I validate constraint %I', t.relname, c.conname)
+            from pg_constraint c
+            join pg_class t on t.oid = c.conrelid
+            where c.contype = 'f' and not c.convalidated and c.connamespace = current_schema()::regnamespace
+            order by t.relname, c.conname
+            """;
+
     private final List<Index> indexes;
     private final List<ForeignKey> foreignKeys;
     private final List<Trigger> triggers;
@@ -186,8 +196,9 @@ final class DeferredSchemaObjects {
     }
 
     /**
-     * Recreates whatever is missing, for example after a failed import. Safe to call repeatedly;
-     * meant for empty tables, where every build and validation is instant.
+     * Recreates whatever is missing and validates foreign keys that were left {@code NOT VALID},
+     * for example after a failed import. Safe to call repeatedly; meant for empty tables, where
+     * every build and validation is instant.
      */
     void restoreMissing(JdbcTemplate jdbc) {
         Set<String> existingIndexes = new HashSet<>(jdbc.queryForList(
@@ -212,6 +223,8 @@ final class DeferredSchemaObjects {
                         + fk.definition());
             }
         }
+        // A failure during validation leaves the foreign keys that were added NOT VALID behind.
+        jdbc.queryForList(NOT_VALIDATED_FOREIGN_KEYS, String.class).forEach(jdbc::execute);
         Set<String> existingTriggers = new HashSet<>(jdbc.queryForList(
                 "select t.relname || '.' || g.tgname from pg_trigger g join pg_class t on t.oid = g.tgrelid"
                         + " where not g.tgisinternal and t.relnamespace = current_schema()::regnamespace",
