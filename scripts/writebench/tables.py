@@ -43,7 +43,9 @@ the start; the stopped attempt is not kept.
 """
 P(HEADER)
 boots = sorted({r["options"].get("boot") for f in glob.glob(os.path.join(D, "*.json")) for r in [json.load(open(f))]})
-P(f"Boot of every run (`uptime -s`): {', '.join(b for b in boots if b)}.")
+boots = [b for b in boots if b]
+P("Every run was on the same boot (`uptime -s` gave the same time for all of them; each run's JSON records it)."
+  if len(boots) == 1 else f"The runs span {len(boots)} boots (`uptime -s`; each run's JSON records its boot).")
 
 
 def runs(pattern):

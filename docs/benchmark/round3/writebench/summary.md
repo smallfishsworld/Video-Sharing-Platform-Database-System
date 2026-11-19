@@ -6,7 +6,7 @@ Original = the 2023 implementation (the course submission on main); round 2 = th
 
 The runs of the first version of the round-3 fix (1717da9, whose co-view trigger scanned the whole co-view table on every deletion) are in `1717da9/`, summarized by `python3 scripts/writebench/tables3.py docs/benchmark/round3/writebench/1717da9`.
 
-Boots of the runs (`uptime -s`): 2026-11-19 03:20:26.
+Every run was on the same boot (`uptime -s` gave the same time for all of them; each run's JSON records it).
 
 ## Deletions on 8 clients
 

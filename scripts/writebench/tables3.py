@@ -101,7 +101,9 @@ if os.path.isdir(os.path.join(D, "1717da9")):
     P("The runs of the first version of the round-3 fix (1717da9, whose co-view trigger scanned the whole co-view "
       "table on every deletion) are in `1717da9/`, summarized by `python3 scripts/writebench/tables3.py "
       "docs/benchmark/round3/writebench/1717da9`.\n")
-P("Boots of the runs (`uptime -s`): " + ", ".join(sorted({r["options"].get("boot", "") for r in every})) + ".")
+boots = sorted({r["options"].get("boot", "") for r in every} - {""})
+P("Every run was on the same boot (`uptime -s` gave the same time for all of them; each run's JSON records it)."
+  if len(boots) == 1 else f"The runs span {len(boots)} boots (`uptime -s`; each run's JSON records its boot).")
 
 # Deletions on 8 clients ---------------------------------------------------------------------------
 P("\n## Deletions on 8 clients\n")
