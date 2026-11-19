@@ -62,8 +62,13 @@ public class VideoServiceImpl implements VideoService {
                        or not exists (select 1 from users u where u.mid = :me) as refused
             """;
 
-    /** Foreign keys cascade to every interaction with the video, so one statement suffices. */
-    private static final String DELETE_VIDEO = "delete from videos where bv = :bv and (:superuser or owner_mid = :me)";
+    /**
+     * Foreign keys cascade to every interaction with the video, so one statement suffices. It runs
+     * after {@link Writes#LOCK_DELETIONS_SHARED}: video deletions run concurrently with each other
+     * but not with account deletions.
+     */
+    private static final String DELETE_VIDEO =
+            Writes.LOCK_DELETIONS_SHARED + "delete from videos where bv = :bv and (:superuser or owner_mid = :me)";
 
     /**
      * Applies an owner's edit if the duration is unchanged, something actually changed and the
@@ -253,7 +258,8 @@ public class VideoServiceImpl implements VideoService {
                 .addValue("bv", bv)
                 .addValue("me", me.get().mid())
                 .addValue("superuser", me.get().superuser());
-        return Writes.run(dataSource, () -> jdbc.update(DELETE_VIDEO, params) == 1, false);
+        return Writes.run(
+                dataSource, () -> jdbc.execute(DELETE_VIDEO, params, Writes.UPDATE_COUNT_AFTER_LOCK) == 1, false);
     }
 
     @Override

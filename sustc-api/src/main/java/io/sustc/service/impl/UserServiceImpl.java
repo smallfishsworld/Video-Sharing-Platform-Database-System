@@ -46,10 +46,11 @@ public class UserServiceImpl implements UserService {
     /**
      * A regular user may delete only their own account; a superuser may also delete regular
      * users. The foreign keys cascade, so this single statement also removes the user's videos
-     * (with every interaction on them), danmus, follow relations and interaction records.
+     * (with every interaction on them), danmus, follow relations and interaction records. It runs
+     * after {@link Writes#LOCK_DELETIONS_EXCLUSIVE}, so no other deletion runs at the same time.
      */
-    private static final String DELETE_USER =
-            """
+    private static final String DELETE_USER = Writes.LOCK_DELETIONS_EXCLUSIVE
+            + """
             delete from users
             where mid = :target
               and (mid = :me or (:superuser and identity = :regularIdentity))
@@ -141,7 +142,8 @@ public class UserServiceImpl implements UserService {
                 .addValue("me", me.get().mid())
                 .addValue("superuser", me.get().superuser())
                 .addValue("regularIdentity", UserRecord.Identity.USER.name());
-        return Writes.run(dataSource, () -> jdbc.update(DELETE_USER, params) == 1, false);
+        return Writes.run(
+                dataSource, () -> jdbc.execute(DELETE_USER, params, Writes.UPDATE_COUNT_AFTER_LOCK) == 1, false);
     }
 
     @Override

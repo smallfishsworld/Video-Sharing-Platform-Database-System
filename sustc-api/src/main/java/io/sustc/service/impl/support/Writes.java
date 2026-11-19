@@ -62,6 +62,28 @@ public final class Writes {
     public static final String LOCK_ACTING_USER = "select pg_advisory_xact_lock(:me);\n";
 
     /**
+     * The first statement of an account deletion: the deletion lock (two-key advisory lock (1, 0),
+     * whose key space is separate from the one-key locks of {@link #LOCK_ACTING_USER}) in
+     * exclusive mode, held until the deletion commits.
+     *
+     * <p>A deletion cascades table by table, and the derived-table trigger of each cascaded table
+     * locks the counters of its own videos (sql/build.sql). Two account deletions, or an account
+     * deletion and a video deletion, could therefore lock shared counters in crossing orders and
+     * deadlock; on the benchmark data, where every account touches about half of the 44 videos,
+     * eight concurrent account deletions deadlocked on most calls. With this lock they run one
+     * after the other. They would queue on the shared counters anyway, so little concurrency is
+     * lost: the counters of a popular video take one deletion at a time.
+     */
+    public static final String LOCK_DELETIONS_EXCLUSIVE = "select pg_advisory_xact_lock(1, 0);\n";
+
+    /**
+     * The first statement of a video deletion: the deletion lock in shared mode. Video deletions
+     * run concurrently with each other (they change no counter of another video, and the co-view
+     * rows they share are deleted in key order), but not with account deletions.
+     */
+    public static final String LOCK_DELETIONS_SHARED = "select pg_advisory_xact_lock_shared(1, 0);\n";
+
+    /**
      * Executes a call made of {@link #LOCK_ACTING_USER} and one statement that returns a single
      * boolean, and returns that boolean ({@code false} if the statement returned no row).
      */
@@ -73,6 +95,18 @@ public final class Writes {
         try (ResultSet rs = ps.getResultSet()) {
             return rs.next() && rs.getBoolean(1);
         }
+    };
+
+    /**
+     * Executes a call made of one of the lock statements above and one INSERT, UPDATE or DELETE,
+     * and returns that statement's update count.
+     */
+    public static final PreparedStatementCallback<Integer> UPDATE_COUNT_AFTER_LOCK = ps -> {
+        ps.execute();
+        if (ps.getMoreResults()) {
+            throw new IllegalStateException("The statement after the lock returned a result set");
+        }
+        return ps.getUpdateCount();
     };
 
     private static final Set<String> RETRYABLE = Set.of("40P01", "40001");
