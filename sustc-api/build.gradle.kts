@@ -34,7 +34,7 @@ tasks.withType<JavaCompile> {
     options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing", "-Xlint:-serial", "-Werror"))
 }
 
-tasks.test {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     // Integration tests apply the real schema scripts from the repository's sql/ directory, so
     // those scripts are inputs: a schema change must re-run the tests, not reuse a cached result.
@@ -45,6 +45,23 @@ tasks.test {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+// The importer writes timestamps in the JVM's time zone; the benchmark runs with Asia/Shanghai,
+// the test task with the machine's zone (UTC on CI). This task runs the importer tests once more
+// in the benchmark's zone.
+val importerTestInBenchmarkZone by tasks.registering(Test::class) {
+    description = "Runs the importer tests with -Duser.timezone=Asia/Shanghai."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter { includeTestsMatching("io.sustc.service.impl.BulkImporterTest") }
+    systemProperty("user.timezone", "Asia/Shanghai")
+    shouldRunAfter(tasks.test)
+}
+
+tasks.check {
+    dependsOn(importerTestInBenchmarkZone)
 }
 
 spotless {
