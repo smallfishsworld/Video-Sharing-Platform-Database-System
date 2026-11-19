@@ -1,4 +1,4 @@
-# ci.yml's build step on the host JDK, in the fresh clone (de4f32a), 2026-11-19T12:34:56Z
+# ci.yml's build step on the host JDK, in the fresh clone (ac3a0dc), 2026-11-19T14:44:18Z
 # command: nice -n 19 bash ./gradlew build --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache
 # (run while holding /home/user/work/bench.lock; --offline, --max-workers=2 and nice: the machine is shared;
 #  --no-build-cache: every task runs; "Picked up" JVM option lines removed)
@@ -6,8 +6,8 @@ openjdk version "21.0.13.0.3" 2026-10-24
 To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
 Daemon will be stopped at the end of the build 
 > Task :spotlessInternalRegisterDependencies
-> Task :sustc-runner:generateEffectiveLombokConfig
 > Task :sustc-api:generateEffectiveLombokConfig
+> Task :sustc-runner:generateEffectiveLombokConfig
 > Task :sustc-runner:processResources
 > Task :sustc-runner:generateTestEffectiveLombokConfig
 > Task :sustc-runner:processTestResources NO-SOURCE
@@ -23,6 +23,9 @@ Daemon will be stopped at the end of the build
 > Task :sustc-runner:classes
 > Task :sustc-runner:bootJarMainClassName
 > Task :sustc-runner:bootJar
+> Task :sustc-api:compileTestJava
+> Task :sustc-api:processTestResources
+> Task :sustc-api:testClasses
 > Task :sustc-runner:jar
 > Task :sustc-runner:assemble
 > Task :sustc-runner:compileTestJava NO-SOURCE
@@ -30,9 +33,6 @@ Daemon will be stopped at the end of the build
 > Task :sustc-runner:test NO-SOURCE
 > Task :sustc-runner:check UP-TO-DATE
 > Task :sustc-runner:build
-> Task :sustc-api:compileTestJava
-> Task :sustc-api:processTestResources
-> Task :sustc-api:testClasses
 
 > Task :sustc-api:test
 
@@ -52,9 +52,9 @@ You can use '--warning-mode all' to show the individual deprecation warnings and
 
 For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-BUILD SUCCESSFUL in 38s
+BUILD SUCCESSFUL in 41s
 19 actionable tasks: 19 executed
 exit 0
 tasks taken from the build cache: 0
-JUnit, task test: TOTAL 142 tests, 0 failures, 0 errors, 0 skipped
+JUnit, task test: TOTAL 144 tests, 0 failures, 0 errors, 0 skipped
 JUnit, task importerTestInBenchmarkZone: TOTAL 9 tests, 0 failures, 0 errors, 0 skipped

@@ -1,0 +1,16 @@
+classes 15; tests 144; integration 110 (BulkImporterTest, CollationIndependenceTest, ConcurrencyTest, DanmuServiceTest, DatabaseServiceTest, DerivedDataConsistencyTest, RecommenderServiceTest, TransactionCompositionTest, UserServiceTest, VideoServiceTest); unit 34; importerTestInBenchmarkZone 9 (BulkImporterTest); executions 153; failures+errors 0; skipped 0
+  BulkImporterTest: 9 (integration)
+  ClockConfigTest: 3
+  CollationIndependenceTest: 5 (integration)
+  ConcurrencyTest: 13 (integration)
+  DanmuServiceTest: 10 (integration)
+  DatabaseServiceTest: 3 (integration)
+  DerivedDataConsistencyTest: 5 (integration)
+  DerivedDataTest: 3
+  PageTest: 4
+  RecommenderServiceTest: 10 (integration)
+  ServiceHelpersTest: 19
+  TransactionCompositionTest: 4 (integration)
+  UserServiceTest: 28 (integration)
+  VideoServiceTest: 23 (integration)
+  WritesTest: 5
