@@ -1,0 +1,76 @@
+Picked up JAVA_TOOL_OPTIONS: [the sandbox's proxy and trust-store settings, removed]
+Picked up _JAVA_OPTIONS: -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_base64_encodeBlock,_base64_decodeBlock
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::               (v2.7.16)
+
+2026-11-19 22:50:26.418  INFO 2789 --- [           main] io.sustc.Application                     : Starting Application using Java 21.0.13.0.3 on vm with PID 2789 (/home/user/work/Video-Sharing-Platform-Database-System/run/sustc-runner.jar started by root in /home/user/work/Video-Sharing-Platform-Database-System/sustc-runner)
+2026-11-19 22:50:26.420 DEBUG 2789 --- [           main] io.sustc.Application                     : Running with Spring Boot v2.7.16, Spring v5.3.30
+2026-11-19 22:50:26.424  INFO 2789 --- [           main] io.sustc.Application                     : The following 1 profile is active: "benchmark"
+2026-11-19 22:50:27.399  INFO 2789 --- [           main] i.sustc.service.impl.config.ClockConfig  : Service clock starts at 2023-12-30T04:00:00Z (offset PT-25330H-50M-27.399457557S from the system clock)
+2026-11-19 22:50:28.079  INFO 2789 --- [           main] io.sustc.Application                     : Started Application in 2.136 seconds (JVM running for 2.576)
+2026-11-19 22:50:28.080 DEBUG 2789 --- [           main] io.sustc.Application                     : {benchmarkRunner=io.sustc.benchmark.BenchmarkRunner@4b3c354a} {benchmarkService=io.sustc.benchmark.BenchmarkService@78fb9a67}
+2026-11-19 22:50:28.081  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Starting benchmark for group [12345678]
+2026-11-19 22:50:28.082  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkConfig(dataPath=data, reportPath=null, studentMode=true)
+2026-11-19 22:50:28.100  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 0: Truncate tables
+2026-11-19 22:50:28.101  WARN 2789 --- [pool-1-thread-1] io.sustc.benchmark.BenchmarkService      : Truncating tables
+2026-11-19 22:50:28.514  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 1: Import data
+2026-11-19 22:50:29.070  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'drop schema objects' took 27 ms
+2026-11-19 22:50:31.830  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'load' took 2759 ms
+2026-11-19 22:50:37.011  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'indexes' took 5179 ms
+2026-11-19 22:50:38.363  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'constraints' took 1351 ms
+2026-11-19 22:50:38.613  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'vacuum analyze' took 250 ms
+2026-11-19 22:50:38.624  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Import phase 'identity sequences' took 9 ms
+2026-11-19 22:50:38.625  INFO 2789 --- [pool-1-thread-1] i.s.service.impl.importer.BulkImporter   : Imported {favorites=430622, videolikes=480154, viewers=874856, danmulikes=11068, coins=447153, danmus=322, followings=5958770, videos=44, video_stats=44, users=37881, video_coviews=1892} in 9621 ms
+2026-11-19 22:50:38.625  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=1, passCnt=null, elapsedTime=9648)
+2026-11-19 22:50:38.661  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 2: Test VideoService#searchVideo(AuthInfo, String, int, int)
+2026-11-19 22:50:38.733  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=2, passCnt=20, elapsedTime=68)
+2026-11-19 22:50:38.734  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 3: Test VideoService#getAverageViewRate(String)
+2026-11-19 22:50:38.752  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=3, passCnt=61, elapsedTime=17)
+2026-11-19 22:50:38.753  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 4: Test VideoService#getHotspot(String)
+2026-11-19 22:50:38.782  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=4, passCnt=56, elapsedTime=24)
+2026-11-19 22:50:38.783  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 5: Test RecommenderService#recommendNextVideo(String)
+2026-11-19 22:50:38.805  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=5, passCnt=43, elapsedTime=21)
+2026-11-19 22:50:38.806  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 6: Test RecommenderService#generalRecommendations(int, int)
+2026-11-19 22:50:38.817  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=6, passCnt=11, elapsedTime=5)
+2026-11-19 22:50:38.818  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 7: Test RecommenderService#recommendVideosForUser(AuthInfo, int, int)
+2026-11-19 22:50:38.881  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=7, passCnt=27, elapsedTime=62)
+2026-11-19 22:50:38.882  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 8: Test RecommenderService#recommendFriends(AuthInfo, int, int)
+2026-11-19 22:50:39.495  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=8, passCnt=142, elapsedTime=609)
+2026-11-19 22:50:39.497  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 9: Test DanmuService#displayDanmu(String, float, float, boolean)
+2026-11-19 22:50:39.592  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=9, passCnt=382, elapsedTime=89)
+2026-11-19 22:50:39.596  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 10: Test DanmuService#sendDanmu(AuthInfo, String, String, float)
+2026-11-19 22:50:39.989  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=10, passCnt=1016, elapsedTime=387)
+2026-11-19 22:50:39.990  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 11: Test UserService#getUserInfo(long)
+2026-11-19 22:50:40.201  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=11, passCnt=500, elapsedTime=202)
+2026-11-19 22:50:40.203  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 12: Test DanmuService#likeDanmu(AuthInfo, long)
+2026-11-19 22:50:40.621  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=12, passCnt=500, elapsedTime=null)
+2026-11-19 22:50:40.625  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 13: Test VideoService#coinVideo(AuthInfo, String)
+2026-11-19 22:50:41.351  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=13, passCnt=511, elapsedTime=724)
+2026-11-19 22:50:41.352  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 14: Test VideoService#likeVideo(AuthInfo, String)
+2026-11-19 22:50:42.362  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=14, passCnt=686, elapsedTime=1006)
+2026-11-19 22:50:42.364  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 15: Test VideoService#collectVideo(AuthInfo, String)
+2026-11-19 22:50:43.082  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=15, passCnt=644, elapsedTime=716)
+2026-11-19 22:50:43.083  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 16: Test VideoService#postVideo(AuthInfo, PostVideoReq)
+2026-11-19 22:50:43.159  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=16, passCnt=184, elapsedTime=71)
+2026-11-19 22:50:43.161  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 17: Test UserService#register(RegisterUserReq)
+2026-11-19 22:50:43.277  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=17, passCnt=273, elapsedTime=112)
+2026-11-19 22:50:43.278  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 18: Test VideoService#updateVideoInfo(AuthInfo, String, PostVideoReq)
+2026-11-19 22:50:43.310  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=18, passCnt=184, elapsedTime=30)
+2026-11-19 22:50:43.311  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 19: Test VideoService#reviewVideo(AuthInfo, String)
+2026-11-19 22:50:43.351  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=19, passCnt=35, elapsedTime=38)
+2026-11-19 22:50:43.352  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 20: Test side effect of step 17, 18
+2026-11-19 22:50:43.363  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=20, passCnt=6, elapsedTime=9)
+2026-11-19 22:50:43.365  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 21: Test VideoService#deleteVideo(AuthInfo, String)
+2026-11-19 22:50:44.032  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=21, passCnt=55, elapsedTime=666)
+2026-11-19 22:50:44.033  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 22: Test UserService#deleteAccount(AuthInfo, long)
+2026-11-19 22:50:44.526  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=22, passCnt=199, elapsedTime=491)
+2026-11-19 22:50:44.528  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : Step 23: Test UserService#follow(AuthInfo, long)
+2026-11-19 22:50:44.589  INFO 2789 --- [           main] io.sustc.benchmark.BenchmarkRunner       : BenchmarkResult(id=23, passCnt=87, elapsedTime=60)
+wall=23s
+code_sha=ac3a0dc3af55a25d22b7889632f151e5ee02ae2b porcelain_lines=0 jar_sha256=bcde4e16d804e30bf187272978a88df7c79854805071b7478400b0daf5e8c1e0 boot=2026-11-19 03:20:26 variant=plain
