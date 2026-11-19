@@ -12,7 +12,7 @@ The base is `2e811bd`, the original course implementation with the build fixed. 
 | `95a7e83` | `video_stats` and `video_coviews` maintained by statement-level triggers; recommendation, search and view-rate queries read them |
 | `bf9936d` | 103 JUnit 5 + Testcontainers tests for every service and the importer; a fix for foreign keys left `NOT VALID` after a failed import |
 | `10339a3` | GitHub Actions CI (JDK 17 and 21); the benchmark, EXPLAIN and write-latency scripts; recorded plans and experiments |
-| the next commit | the two READMEs, these notes, the raw benchmark reports in `docs/benchmark` |
+| `13b980d` | the two READMEs, the engineering notes, this file, the raw benchmark reports in `docs/benchmark`; `sql/` declared as a test input |
 
 Where it stands:
 - **Benchmark.** All 5,622 cases pass in all three final runs. The 22 query and update steps take 3,923 ms against 15,196 ms for the original (medians of 3 runs), and the import takes 8,259 ms against 57,674 ms.
