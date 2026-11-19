@@ -143,6 +143,18 @@ class DanmuServiceTest extends IntegrationTest {
         assertThat(danmus.displayDanmu(bv, 0, (float) DURATION, false)).isEmpty();
     }
 
+    /** Equal content and equal post time: the filter keeps the danmu with the smaller id. */
+    @Test
+    void theFilterBreaksPostTimeTiesById() {
+        publishedVideoWithAViewer();
+        Instant t = fx.now().minus(Duration.ofHours(1));
+        long first = fx.danmu(bv, viewer, 7, "same", t);
+        long second = fx.danmu(bv, owner, 2, "same", t);
+
+        assertThat(danmus.displayDanmu(bv, 0, 10, true)).containsExactly(first);
+        assertThat(danmus.displayDanmu(bv, 0, 10, false)).containsExactly(second, first);
+    }
+
     // likeDanmu ----------------------------------------------------------------------------------
 
     @Test
@@ -155,6 +167,21 @@ class DanmuServiceTest extends IntegrationTest {
                 .isEqualTo(1);
         assertThat(danmus.likeDanmu(fx.auth(viewer), id)).isFalse();
         assertThat(count("select count(*) from danmulikes")).isZero();
+        assertThat(danmus.likeDanmu(fx.auth(viewer), id)).isTrue();
+    }
+
+    /**
+     * As its Javadoc says, likeDanmu checks only that the danmu exists and that the user watched
+     * its video; it does not apply the visibility rule of the video interactions.
+     */
+    @Test
+    void likeDanmuIgnoresWhetherTheVideoIsPublished() {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String hidden = fx.unreviewedVideo(owner, "hidden");
+        fx.watch(hidden, viewer, 1);
+        long id = fx.danmu(hidden, owner, 1, "before review", fx.now());
+
         assertThat(danmus.likeDanmu(fx.auth(viewer), id)).isTrue();
     }
 

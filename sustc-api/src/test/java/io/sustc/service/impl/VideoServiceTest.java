@@ -136,6 +136,21 @@ class VideoServiceTest extends IntegrationTest {
         DerivedTables.assertConsistent(jdbc);
     }
 
+    /** Donations are not refunded when the video goes: the donor's balance stays where it was. */
+    @Test
+    void deletingADonatedVideoDoesNotRefundTheDonor() {
+        long owner = fx.user("owner");
+        long donor = fx.user("donor", 0, 3);
+        String bv = fx.video(owner, "donated");
+
+        assertThat(videos.coinVideo(fx.auth(donor), bv)).isTrue();
+        assertThat(videos.deleteVideo(fx.auth(owner), bv)).isTrue();
+
+        assertThat(count("select coin from users where mid = ?", donor)).isEqualTo(2);
+        assertThat(count("select count(*) from coins")).isZero();
+        DerivedTables.assertConsistent(jdbc);
+    }
+
     // updateVideoInfo ----------------------------------------------------------------------------
 
     @Test
@@ -187,6 +202,20 @@ class VideoServiceTest extends IntegrationTest {
                 .isFalse();
         assertThat(videos.updateVideoInfo(fx.auth(owner), bv, request("").build()))
                 .as("invalid request")
+                .isFalse();
+        assertThat(videos.updateVideoInfo(
+                        AuthInfo.builder().mid(owner).password("wrong").build(),
+                        bv,
+                        request("x").build()))
+                .as("wrong password")
+                .isFalse();
+        assertThat(videos.updateVideoInfo(
+                        fx.auth(owner),
+                        bv,
+                        request("x")
+                                .publicTime(Timestamp.from(fx.now().minus(Duration.ofMinutes(1))))
+                                .build()))
+                .as("public time in the past")
                 .isFalse();
         assertThat(videos.updateVideoInfo(
                         fx.auth(owner), "BVmissing", request("x").build()))

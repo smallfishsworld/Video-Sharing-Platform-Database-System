@@ -43,6 +43,15 @@ class UserServiceTest extends IntegrationTest {
                 .containsEntry("wechat", "wx-neo");
     }
 
+    /** An empty sign is a value, not an absence: it is stored as '' (only empty OIDC ids mean none). */
+    @Test
+    void registerStoresAnEmptySignAsAnEmptyString() {
+        long mid = users.register(validRequest().sign("").build());
+
+        assertThat(jdbc.queryForObject("select sign from users where mid = ?", String.class, mid))
+                .isEmpty();
+    }
+
     @Test
     void registerRejectsMissingRequiredFields() {
         assertThat(users.register(null)).isEqualTo(-1);

@@ -26,7 +26,8 @@ public class DanmuServiceImpl implements DanmuService {
 
     /**
      * Only viewers of a published video can send danmus to it, at a time within the video. The
-     * owner and superusers get no exception here: an unpublished video has no audience yet.
+     * Javadoc rejects unpublished videos for every sender, so the owner/superuser exception of
+     * {@link VideoVisibility#VISIBLE_TO_ME} does not apply.
      */
     private static final String SEND =
             """

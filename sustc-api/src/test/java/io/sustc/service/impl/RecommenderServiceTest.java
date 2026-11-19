@@ -57,6 +57,23 @@ class RecommenderServiceTest extends IntegrationTest {
         DerivedTables.assertConsistent(jdbc);
     }
 
+    /**
+     * The recommendation methods take no AuthInfo (except recommendVideosForUser) and their
+     * Javadoc names no visibility rule, so unreviewed videos are recommended like any other.
+     */
+    @Test
+    void unreviewedVideosAreRecommended() {
+        long owner = fx.user("owner");
+        long viewer = fx.user("viewer");
+        String reviewed = fx.video(owner, "reviewed");
+        String unreviewed = fx.unreviewedVideo(owner, "unreviewed");
+        fx.watch(reviewed, viewer, 1);
+        fx.watch(unreviewed, viewer, Fixtures.DEFAULT_DURATION);
+
+        assertThat(recommender.recommendNextVideo(reviewed)).containsExactly(unreviewed);
+        assertThat(recommender.generalRecommendations(1, 1)).containsExactly(unreviewed);
+    }
+
     @Test
     void recommendNextVideoReturnsNullForMissingVideos() {
         assertThat(recommender.recommendNextVideo("BVmissing")).isNull();
