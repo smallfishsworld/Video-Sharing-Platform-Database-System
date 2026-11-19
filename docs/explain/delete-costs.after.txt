@@ -1,3 +1,7 @@
+# psql -X -q -f docs/explain/delete-costs.sql, round 2: sql/build.sql of 89e39e2 (08:29:53Z, unchanged up to a330c0c),
+# on the benchmark data as that version imports it. The run's time, commit and boot were not recorded (this
+# header was added in round 4). The file was committed in 832f477 at 2026-11-19T11:35:29Z; the machine was on
+# boot 2026-11-19 03:20:26 from before 08:29 UTC until round 4.
     video     | views | danmus | likes | coins | favorites | coview_rows 
 --------------+-------+--------+-------+-------+-----------+-------------
  BV1JZ4y1h7nD | 18179 |     14 | 10429 | 10129 |     10064 |          86
