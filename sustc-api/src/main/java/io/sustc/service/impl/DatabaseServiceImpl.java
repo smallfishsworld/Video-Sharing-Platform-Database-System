@@ -15,7 +15,11 @@ public class DatabaseServiceImpl implements DatabaseService {
     /** The course framework uses this id to name the benchmark report file. */
     private static final List<Integer> GROUP_MEMBERS = List.of(12345678);
 
-    /** Truncates every table of the current schema in one statement and resets identity columns. */
+    /**
+     * Truncates every table of the current schema in one statement and resets identity columns.
+     * The audit log is truncated too; its TRUNCATE trigger on users then records this wipe, so the
+     * log holds exactly that one record afterwards.
+     */
     private static final String TRUNCATE_ALL =
             """
             do $$

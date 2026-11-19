@@ -22,8 +22,13 @@ class DatabaseServiceTest extends IntegrationTest {
                 "select tablename from pg_tables where schemaname = current_schema() order by 1", String.class);
         assertThat(tables).contains("users", "danmulikes", "video_stats", "video_coviews", "log_users");
         for (String table : tables) {
-            assertThat(count("select count(*) from " + table)).as(table).isZero();
+            if (!table.equals("log_users")) {
+                assertThat(count("select count(*) from " + table)).as(table).isZero();
+            }
         }
+        // The audit log is emptied too, except for the record of this TRUNCATE (sql/audit.sql).
+        assertThat(jdbc.queryForList("select operation from log_users", String.class))
+                .containsExactly("TRUNCATE");
         assertThat(fx.user("first again")).isEqualTo(1);
     }
 
