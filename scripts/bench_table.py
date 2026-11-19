@@ -5,9 +5,10 @@
     python3 scripts/bench_table.py --write README.md README.zh-CN.md
     python3 scripts/bench_table.py --dir docs/benchmark/round1 --before 'baseline-*.json' --after 'optimized-*.json'
 
-By default it reads the interleaved runs of scripts/bench_series.sh in docs/benchmark/round2/plain:
-c2-B<i>.json (the original implementation) and c2-O<i>.json (this version); --dir, --before and
---after select other runs (.monitor.json files are skipped). For each step the table shows the
+By default it reads the interleaved runs of scripts/bench_series.sh in docs/benchmark/round3/plain:
+c6-B<i>.json (the original implementation) and c6-O<i>.json (this version); --dir, --before and
+--after select other runs (round 2: --dir docs/benchmark/round2/plain --before 'c2-B*.json'
+--after 'c2-O*.json') (.monitor.json files are skipped). For each step the table shows the
 median elapsed time over the runs of a group, the range in brackets, and the speedup computed from
 the two medians; the pass count is the minimum over the runs. Below the steps it sums the medians
 of the 10 read steps, of the 11 write steps and of all 21 timed steps (step 1 is the import, step
@@ -148,9 +149,9 @@ def table(before, after, n_before, n_after, lang):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs",
-                                                      "benchmark", "round2", "plain"))
-    parser.add_argument("--before", default="c2-B*.json", help="file pattern of the original implementation's runs")
-    parser.add_argument("--after", default="c2-O*.json", help="file pattern of this version's runs")
+                                                      "benchmark", "round3", "plain"))
+    parser.add_argument("--before", default="c6-B*.json", help="file pattern of the original implementation's runs")
+    parser.add_argument("--after", default="c6-O*.json", help="file pattern of this version's runs")
     parser.add_argument("--write", nargs="*", default=[], metavar="FILE")
     args = parser.parse_args()
 
