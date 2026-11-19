@@ -893,64 +893,127 @@ public final class WriteBench {
                 "failed_calls", failed, "done_donations", doneTotal);
     }
 
+    /** The acting user and the target (a followee or a video) of one toggle trial. */
+    record TogglePair(long me, long followee, String bv) {}
+
+    /** Picks a random pair of two live distinct users, or a live non-owner viewer and a video. */
+    TogglePair pickTogglePair(Random r, boolean follow) {
+        while (true) {
+            if (follow) {
+                UserRecord a = data.regular.get(r.nextInt(data.regular.size()));
+                UserRecord b = data.regular.get(r.nextInt(data.regular.size()));
+                if (a.getMid() != b.getMid() && !data.deleted.contains(a.getMid()) && !data.deleted.contains(b.getMid())) {
+                    return new TogglePair(a.getMid(), b.getMid(), null);
+                }
+            } else {
+                VideoRecord v = data.visibleVideos.get(r.nextInt(data.visibleVideos.size()));
+                if (v.getViewerMids().length == 0) {
+                    continue;
+                }
+                long me = v.getViewerMids()[r.nextInt(v.getViewerMids().length)];
+                if (me != v.getOwnerMid() && !data.deleted.contains(me)) {
+                    return new TogglePair(me, 0, v.getBv());
+                }
+            }
+        }
+    }
+
+    boolean toggle(TogglePair p, boolean follow) {
+        return follow ? users.follow(data.auth(p.me()), p.followee()) : videos.likeVideo(data.auth(p.me()), p.bv());
+    }
+
+    boolean toggleState(TogglePair p, boolean follow) {
+        return follow ? following(p.me(), p.followee()) : liked(p.me(), p.bv());
+    }
+
     /**
-     * 8 threads toggle one pair 10 times each. Every call reports the state after it; in a run
-     * without lost updates, (calls that report on) - (calls that report off) equals the final state.
+     * Toggles one pair twice, one call at a time, and compares each return value with the state
+     * read back after it. Returns "new_state" if every call returned the state after it, otherwise
+     * what the calls returned. The pair comes from a generator of its own, so the trials that
+     * follow pick the same pairs as without the probe.
+     */
+    String probeToggleReturn(boolean follow) {
+        TogglePair p = pickTogglePair(new Random(Long.parseLong(opt.getOrDefault("seed", "1")) + 7919), follow);
+        boolean s0 = toggleState(p, follow);
+        boolean r1;
+        boolean r2;
+        try {
+            r1 = toggle(p, follow);
+        } catch (RuntimeException e) {
+            return "the first sequential probe call failed: " + rootMessage(e);
+        }
+        boolean s1 = toggleState(p, follow);
+        try {
+            r2 = toggle(p, follow);
+        } catch (RuntimeException e) {
+            return "the second sequential probe call failed: " + rootMessage(e);
+        }
+        boolean s2 = toggleState(p, follow);
+        if (r1 == s1 && r2 == s2 && s1 != s0 && s2 == s0) {
+            return "new_state";
+        }
+        return "sequential calls returned " + r1 + " then " + r2 + " while the state went " + s0 + " -> " + s1
+                + " -> " + s2;
+    }
+
+    /**
+     * 8 threads toggle one pair 10 times each. A trial has failed calls if any of its 80 calls
+     * threw; the errors map counts the exceptions by root message. If every call returns the state
+     * after it (checked first by {@link #probeToggleReturn}), then in a trial without failed calls
+     * and without lost updates, (calls that return true) - (calls that return false) equals the
+     * final state minus the initial one; a trial where it does not is a count mismatch, that is, a
+     * lost update. If the return value is not the new state (the 2023 follow returns true for an
+     * unfollow too), the count check does not apply and its fields are null. Trials with failed
+     * calls are not count-checked, because a failed call may have changed the state.
      */
     Map<String, Object> toggleStress(int trials, boolean follow) throws Exception {
-        int violations = 0;
+        String returnValue = probeToggleReturn(follow);
+        boolean countCheck = returnValue.equals("new_state");
+        int withFailed = 0;
+        int checked = 0;
+        int mismatched = 0;
         int failed = 0;
+        Map<String, Integer> errors = new TreeMap<>();
         ExecutorService pool = Executors.newFixedThreadPool(8);
         try {
             for (int t = 0; t < trials; t++) {
-                long me;
-                String bv = null;
-                long followee = 0;
-                if (follow) {
-                    UserRecord a = data.regular.get(rnd.nextInt(data.regular.size()));
-                    UserRecord b = data.regular.get(rnd.nextInt(data.regular.size()));
-                    if (a.getMid() == b.getMid() || data.deleted.contains(a.getMid()) || data.deleted.contains(b.getMid())) {
-                        t--;
-                        continue;
-                    }
-                    me = a.getMid();
-                    followee = b.getMid();
-                } else {
-                    VideoRecord v = data.visibleVideos.get(rnd.nextInt(data.visibleVideos.size()));
-                    if (v.getViewerMids().length == 0) {
-                        t--;
-                        continue;
-                    }
-                    me = v.getViewerMids()[rnd.nextInt(v.getViewerMids().length)];
-                    if (me == v.getOwnerMid() || data.deleted.contains(me)) {
-                        t--;
-                        continue;
-                    }
-                    bv = v.getBv();
-                }
-                boolean before = follow ? following(me, followee) : liked(me, bv);
-                long fMe = me;
-                long fFollowee = followee;
-                String fBv = bv;
+                TogglePair p = pickTogglePair(rnd, follow);
+                boolean before = toggleState(p, follow);
                 List<Call> calls = new ArrayList<>();
                 for (int i = 0; i < 80; i++) {
-                    calls.add(() -> (follow ? users.follow(data.auth(fMe), fFollowee) : videos.likeVideo(data.auth(fMe), fBv)) ? 1 : 0);
+                    calls.add(() -> toggle(p, follow) ? 1 : 0);
                 }
                 Batch b = runCalls(pool, 8, calls);
-                boolean after = follow ? following(me, followee) : liked(me, bv);
+                boolean after = toggleState(p, follow);
                 failed += b.failed;
-                // Each call flips the state and reports the new one: from "before", the number of
-                // calls that report "on" minus those that report "off" is fixed by the final state.
-                int expected = (after ? 1 : 0) - (before ? 1 : 0);
-                if (b.failed > 0 || b.done - b.refused != expected) {
-                    violations++;
+                b.errors.forEach((k, n) -> errors.merge(k, n, Integer::sum));
+                if (b.failed > 0) {
+                    withFailed++;
+                } else if (countCheck) {
+                    checked++;
+                    int expected = (after ? 1 : 0) - (before ? 1 : 0);
+                    if (b.done - b.refused != expected) {
+                        mismatched++;
+                    }
                 }
             }
         } finally {
             pool.shutdownNow();
         }
-        return Map.of("trials", trials, "calls_per_trial", 80, "threads", 8, "trials_with_lost_update", violations,
-                "failed_calls", failed);
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("trials", trials);
+        r.put("calls_per_trial", 80);
+        r.put("threads", 8);
+        r.put("trials_with_failed_calls", withFailed);
+        r.put("failed_calls", failed);
+        r.put("errors", errors);
+        r.put("return_value", returnValue);
+        r.put("count_check", countCheck
+                ? "applies: trials without failed calls are checked"
+                : "not applicable: the return value is not the new state");
+        r.put("trials_count_checked", countCheck ? checked : null);
+        r.put("trials_with_count_mismatch", countCheck ? mismatched : null);
+        return r;
     }
 
     boolean liked(long mid, String bv) {

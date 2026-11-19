@@ -10,10 +10,14 @@
 # WriteBench caps the load at 16 client threads and 5,000 calls per operation.
 #
 # Wrap timing runs in flock, e.g. flock /home/user/work/bench.lock scripts/writebench/run.sh ...
+# --code-sha is a label of the caller's choice; the JSON also records, taken inside the lock just
+# before the run, git HEAD and git status --porcelain of this checkout and, for every --sql file,
+# its SHA-256 and the HEAD of the repository that holds it (with "+modified" if it differs from
+# that HEAD).
 set -euo pipefail
 
 usage() {
-    sed -n '2,12p' "$0" >&2
+    sed -n '2,16p' "$0" >&2
     exit 2
 }
 
@@ -67,6 +71,24 @@ cat > "$cache/logback.xml" <<'EOF'
 </configuration>
 EOF
 
+# Provenance of what this run measures, recorded at the start of the run (inside the caller's lock).
+# GIT_OPTIONAL_LOCKS=0 keeps git status from refreshing the index of the repositories it reads.
+export GIT_OPTIONAL_LOCKS=0
+git_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)
+git_porcelain=$(git -C "$repo" status --porcelain 2>/dev/null || true)
+git_porcelain_lines=$(printf '%s' "$git_porcelain" | grep -c . || true)
+sql_sha256="" sql_git=""
+for f in $sql; do
+    sql_sha256+="${sql_sha256:+ }$f=$(sha256sum "$f" | cut -d' ' -f1)"
+    d=$(dirname "$f")
+    if head=$(git -C "$d" rev-parse HEAD 2>/dev/null); then
+        [[ -n $(git -C "$d" status --porcelain -- "$(basename "$f")") ]] && head+="+modified"
+    else
+        head=none
+    fi
+    sql_git+="${sql_git:+ }$f=$head"
+done
+
 export PGPASSWORD=${PGPASSWORD:-sustc} PGOPTIONS="-c client_min_messages=warning"
 psql -q -h "$host" -U "$user" -d "$db" -c "drop schema public cascade; create schema public;" >/dev/null
 for f in $sql; do
@@ -79,6 +101,8 @@ java -Duser.timezone=Asia/Shanghai -Dsustc.clock.start=2023-12-30T12:00:00+08:00
     -cp "$classes:$cache/lib/*" WriteBench \
     --url "jdbc:postgresql://$host:5432/$db" --data "$repo/sustc-runner/data" --out "$out.tmp" \
     --jar "$jar" --jar_sha256 "$jar_sha" --code_sha "${code_sha:-unknown}" --sql "$sql" \
+    --sql_sha256 "$sql_sha256" --sql_git "$sql_git" --git_head "$git_head" \
+    --git_porcelain_lines "$git_porcelain_lines" --git_porcelain "$(printf '%s' "$git_porcelain" | tr '\n' ';')" \
     --boot "$(uptime -s)" --java "$(java -version 2>&1 | grep -v "^Picked up" | head -1)" \
     --server "$(psql -Atq -h "$host" -U "$user" -d "$db" -c 'select version()')" \
     "$@" > "$log" 2>&1
