@@ -1,27 +1,38 @@
-# scripts/write_latency.sh, 2026-11-19T03:27:46Z, 4 CPUs, 1000 transactions per line, 1 client
+# scripts/write_latency.sh, 2026-11-19T10:50:23Z, 4 CPUs, 1000 transactions per line, 1 client, 5 rounds
+# commit 10e32758a13972d88e902a11e0f12adb126f94f7 (0 uncommitted tracked paths), jar sha256 42004a16eec69e0b4ab324f5266f4a90242bdcc8f0d2b950f8ecd6fc2289f816, boot 2026-11-19 03:20:26
 PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
 checkpoint_timeout=300 fsync=on full_page_writes=on max_wal_size=1024 shared_buffers=131072 synchronous_commit=on wal_compression=off
 
 ## 1. Fresh import into public, then the same statements again after 120s
-Imported {favorites=430622, videolikes=480154, viewers=874856, danmulikes=11068, coins=447153, danmus=322, followings=5958770, videos=44, video_stats=44, users=37881, video_coviews=1892} in 15913 ms
-after import:   Dirty: 142768 kB Writeback: 136 kB 
-likeVideo, current, right after import       latency average = 1.301 ms 
-displayDanmu, current, right after import    latency average = 0.126 ms 
-after 120s: Dirty: 316 kB Writeback: 0 kB 
-likeVideo, current, settled                  latency average = 0.783 ms 
-displayDanmu, current, settled               latency average = 0.141 ms 
+Imported {favorites=430622, videolikes=480154, viewers=874856, danmulikes=11068, coins=447153, danmus=322, followings=5958770, videos=44, video_stats=44, users=37881, video_coviews=1892} in 8742 ms
+after import:   Dirty: 932 kB Writeback: 24 kB 
+likeVideo, current, right after import       latency average = 0.957 ms 
+displayDanmu, current, right after import    latency average = 0.178 ms 
+after 120s: Dirty: 140 kB Writeback: 0 kB 
+likeVideo, current, settled                  latency average = 0.994 ms 
+displayDanmu, current, settled               latency average = 0.146 ms 
 
-## 2. likeVideo without the derived-table triggers, then also without the foreign keys
-likeVideo, current, no triggers              latency average = 0.687 ms 
-likeVideo, current, no triggers, no FKs      latency average = 0.803 ms 
-likeVideo, current, with both again          latency average = 0.877 ms 
+## 2. likeVideo with triggers and foreign keys, without the triggers, without both; alternating rounds
+likeVideo, triggers+FKs, round 1             latency average = 1.031 ms 
+likeVideo, no triggers, round 1              latency average = 0.869 ms 
+likeVideo, no triggers no FKs, round 1       latency average = 0.811 ms 
+likeVideo, triggers+FKs, round 2             latency average = 1.064 ms 
+likeVideo, no triggers, round 2              latency average = 0.911 ms 
+likeVideo, no triggers no FKs, round 2       latency average = 0.733 ms 
+likeVideo, triggers+FKs, round 3             latency average = 0.983 ms 
+likeVideo, no triggers, round 3              latency average = 0.887 ms 
+likeVideo, no triggers no FKs, round 3       latency average = 0.794 ms 
+likeVideo, triggers+FKs, round 4             latency average = 1.019 ms 
+likeVideo, no triggers, round 4              latency average = 0.839 ms 
+likeVideo, no triggers no FKs, round 4       latency average = 0.657 ms 
+likeVideo, triggers+FKs, round 5             latency average = 0.935 ms 
+likeVideo, no triggers, round 5              latency average = 0.924 ms 
+likeVideo, no triggers no FKs, round 5       latency average = 0.852 ms 
 
 ## 3. Original vs current likeVideo statement sequence, alternating (settled data)
-# Both schemas pay full-page writes after each checkpoint start; alternating short rounds
-# exposes them to the same checkpoint phase.
-likeVideo, original, round 1                 latency average = 1.235 ms 
-likeVideo, current, round 1                  latency average = 0.882 ms 
-likeVideo, original, round 2                 latency average = 1.057 ms 
-likeVideo, current, round 2                  latency average = 0.904 ms 
-likeVideo, original, round 3                 latency average = 0.941 ms 
-likeVideo, current, round 3                  latency average = 0.806 ms 
+schema original missing; skipped
+
+## Summary: median [min-max] of the rounds, ms
+likeVideo, triggers+FKs                  1.019 [0.935-1.064] (n=5)
+likeVideo, no triggers                   0.887 [0.839-0.924] (n=5)
+likeVideo, no triggers no FKs            0.794 [0.657-0.852] (n=5)
