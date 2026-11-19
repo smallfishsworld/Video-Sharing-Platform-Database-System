@@ -62,18 +62,24 @@ public class VideoServiceImpl implements VideoService {
     private static final String DELETE_VIDEO = "delete from videos where bv = :bv and (:superuser or owner_mid = :me)";
 
     /**
-     * Applies an owner's edit if the duration is unchanged and something actually changed. Any
-     * edit sends the video back for review; the result says whether it had been reviewed.
+     * Applies an owner's edit if the duration is unchanged, something actually changed and the
+     * owner has no other video with the new title. Any edit sends the video back for review; the
+     * result says whether it had been reviewed.
+     *
+     * <p>{@code old} locks the row before reading it. Under READ COMMITTED a locking read returns
+     * the latest committed version, so two concurrent edits of one video are applied one after
+     * the other and each reports the review state that it replaced.
      */
     private static final String UPDATE_VIDEO =
             """
+            with old as (
+                select bv, review_time from videos where bv = :bv and owner_mid = :me for update
+            )
             update videos v
             set title = :title, description = :description, public_time = :publicTime,
                 review_time = null, reviewer = null
-            from videos old
-            where old.bv = v.bv
-              and v.bv = :bv
-              and v.owner_mid = :me
+            from old
+            where v.bv = old.bv
               and v.duration = :duration
               and (v.title, v.description, v.public_time) is distinct from (:title, :description, :publicTime)
               and not exists (select 1 from videos o where o.owner_mid = :me and o.title = :title and o.bv <> v.bv)
