@@ -98,7 +98,7 @@ with_fks() {
 mkdir -p "$(dirname "$OUT")"
 {
     echo "# scripts/write_latency.sh, $(date -u +%FT%TZ), $(nproc) CPUs, $TX transactions per line, 1 client, $ROUNDS rounds"
-    echo "# commit $(git -C "$REPO" rev-parse HEAD) ($(git -C "$REPO" status --porcelain | wc -l) uncommitted paths), boot $(uptime -s)"
+    echo "# commit $(git -C "$REPO" rev-parse HEAD) ($(git -C "$REPO" status --porcelain --untracked-files=no | wc -l) uncommitted tracked paths), jar sha256 $(sha256sum "$REPO/run/sustc-runner.jar" | cut -c1-64), boot $(uptime -s)"
     q "select version()"
     q "select string_agg(name || '=' || setting, ' ') from pg_settings where name in ('synchronous_commit', 'fsync', 'full_page_writes', 'wal_compression', 'checkpoint_timeout', 'max_wal_size', 'shared_buffers')"
     echo
