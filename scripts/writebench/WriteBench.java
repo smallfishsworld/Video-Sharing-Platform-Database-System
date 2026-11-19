@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -46,6 +47,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -65,7 +67,8 @@ import org.springframework.transaction.PlatformTransactionManager;
  *       Sync and simple queries (round trips).
  *   <li>stress: concurrent coin donations by one user, concurrent like and follow toggles of one
  *       pair, and concurrent deletions of two accounts with crossing interactions; report the
- *       invariant violations and exceptions.
+ *       invariant violations and exceptions; connections that a call left open are closed and
+ *       counted.
  * </ul>
  *
  * <p>Load limits: at most {@value #MAX_CLIENTS} client threads and {@value #MAX_OPS} calls per
@@ -92,6 +95,8 @@ public final class WriteBench {
     DanmuService danmus;
     DatabaseService database;
     DataSource ds;
+    /** Set in the stress mode only. */
+    static LeakTracker leaks;
     String url;
 
     WriteBench(Map<String, String> opt, Data data) {
@@ -124,7 +129,7 @@ public final class WriteBench {
         out.put("seed", o.getOrDefault("seed", "1"));
         out.put("options", new TreeMap<>(o));
         out.put("started", Instant.now().toString());
-        b.start(mode.equals("count"));
+        b.start(mode.equals("count"), mode.equals("stress"));
         if (!o.containsKey("no-import")) {
             long t0 = System.nanoTime();
             b.database.importData(data.danmus, data.users, data.videos);
@@ -150,7 +155,7 @@ public final class WriteBench {
 
     // Setup ---------------------------------------------------------------------------------------
 
-    void start(boolean counting) {
+    void start(boolean counting, boolean tracking) {
         HikariConfig cfg = new HikariConfig();
         String u = url;
         if (counting) {
@@ -162,7 +167,10 @@ public final class WriteBench {
         // The runner's application.yml settings; the pool size is Hikari's default (10).
         cfg.setConnectionTimeout(180000);
         cfg.setLeakDetectionThreshold(120000);
-        HikariDataSource hikari = new HikariDataSource(cfg);
+        HikariDataSource pool = new HikariDataSource(cfg);
+        // The stress mode runs implementations that do not close their connection when a statement
+        // fails; it closes what each call left open, so that the pool is not drained.
+        DataSource hikari = tracking ? (leaks = new LeakTracker(pool)) : pool;
         ds = hikari;
         AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
         ctx.registerBean("dataSource", DataSource.class, () -> hikari);
@@ -499,6 +507,9 @@ public final class WriteBench {
                         }
                     }
                     b.nanos[i] = System.nanoTime() - t0;
+                    if (leaks != null) {
+                        leaks.closeLeftOpen();
+                    }
                 }
                 return null;
             }));
@@ -523,6 +534,37 @@ public final class WriteBench {
         String m = t.getClass().getSimpleName() + ": " + t.getMessage();
         m = m.split("\n")[0];
         return m.length() > 120 ? m.substring(0, 120) : m;
+    }
+
+    /** Remembers the connections each thread took and closes the ones a call did not close. */
+    static final class LeakTracker extends DelegatingDataSource {
+        final ThreadLocal<List<Connection>> taken = ThreadLocal.withInitial(ArrayList::new);
+        final AtomicInteger leaked = new AtomicInteger();
+
+        LeakTracker(DataSource pool) {
+            super(pool);
+        }
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            Connection c = super.getConnection();
+            taken.get().add(c);
+            return c;
+        }
+
+        void closeLeftOpen() {
+            for (Connection c : taken.get()) {
+                try {
+                    if (!c.isClosed()) {
+                        leaked.incrementAndGet();
+                        c.close();
+                    }
+                } catch (SQLException e) {
+                    leaked.incrementAndGet();
+                }
+            }
+            taken.get().clear();
+        }
     }
 
     // Statement counts --------------------------------------------------------------------------------
@@ -608,11 +650,19 @@ public final class WriteBench {
 
     Map<String, Object> stress(int trials) throws Exception {
         Map<String, Object> r = new LinkedHashMap<>();
-        r.put("coin_double_spend", coinStress(trials));
-        r.put("like_toggle", toggleStress(trials, false));
-        r.put("follow_toggle", toggleStress(trials, true));
-        r.put("crossing_account_deletions", deletionStress(trials));
+        r.put("coin_double_spend", withLeaks(coinStress(trials)));
+        r.put("like_toggle", withLeaks(toggleStress(trials, false)));
+        r.put("follow_toggle", withLeaks(toggleStress(trials, true)));
+        r.put("crossing_account_deletions", withLeaks(deletionStress(trials)));
         return r;
+    }
+
+    /** Adds the number of connections that the calls of one part left open (closed by LeakTracker). */
+    Map<String, Object> withLeaks(Map<String, Object> part) {
+        Map<String, Object> m = new LinkedHashMap<>(part);
+        leaks.closeLeftOpen();
+        m.put("connections_left_open", leaks.leaked.getAndSet(0));
+        return m;
     }
 
     /**
