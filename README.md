@@ -2,209 +2,268 @@
 
 **English** | [中文](README.zh-CN.md)
 
-A database backend for a Bilibili-style video-sharing platform: users, videos, danmu (time-synced comments), likes / coins / favorites, follow relationships, and SQL-based search and recommendation.
+A PostgreSQL backend for a Bilibili-style video-sharing platform: users, videos, danmu (time-synced comments), likes / coins / favorites, follow relations, search and recommendations. Java 17, Spring Boot 2.7, hand-written SQL over JDBC (no ORM). It implements the service interfaces of a course framework, whose 23-step benchmark checks every answer and times every step.
 
-- **Tech stack**: Java 17+ · Spring Boot 2.7 · plain JDBC (no ORM) · HikariCP · PostgreSQL 15/16 · Gradle
-- **Size**: 5 service implementations, about 2,500 lines of Java; every core query is hand-written SQL
-- **Result**: passed 5,618 of the 5,622 cases (99.9%) in the bundled 23-step benchmark
+**Results** (same machine and PostgreSQL 16 configuration, 3 runs each, medians; [methodology](#methodology)):
 
-> The interfaces in `io.sustc.service.*`, the DTOs in `io.sustc.dto.*`, and the whole `sustc-runner` module (command-line shell and benchmark) come from an existing MIT-licensed project framework (see [LICENSE](LICENSE)).
-> My work is everything under `sustc-api/src/main/java/io/sustc/service/impl/`, plus the schema, audit and permission scripts in `sql/`.
+- Passes **all 5,622** benchmark cases; the original implementation passed 5,618.
+- Data import (≈ 8.2 M rows): **57.7 s → 8.3 s (7.0×)**.
+- The 22 query and update steps together: **15.2 s → 3.9 s (3.9×)**. Similar videos 72×, general recommendations 119×, personalized recommendations 28×, friend recommendations 16×, search 5×.
+- A whole benchmark run, JVM start included: 80 s → 20 s.
+- 103 tests (JUnit 5, Testcontainers with PostgreSQL 16), CI on JDK 17 and 21.
 
----
+The price is paid on small steps: 13 of them are slower than before, by 11–309 ms each. Eleven are single-row writes and deletes, which now check foreign keys, maintain precomputed counters and run right after a much faster import; [the write path](#the-write-path) measures where that time goes. The other two are cheap reads (hotspots, danmu display) whose queries take well under 1 ms in the database.
+
+> The interfaces in `io.sustc.service`, the DTOs in `io.sustc.dto` and the whole `sustc-runner` module (shell and benchmark) come from an MIT-licensed course framework (see [LICENSE](LICENSE)); the benchmark logic and data are unchanged. This project's work is `sustc-api/src/main/java/io/sustc/service/impl/`, the SQL in `sql/`, the tests, the scripts and the documentation.
 
 ## Contents
 
 - [Architecture](#architecture)
 - [Database design](#database-design)
-- [Features](#features)
-- [Performance optimizations](#performance-optimizations)
-- [Benchmark results](#benchmark-results)
+- [Performance](#performance)
+- [Correctness](#correctness)
 - [Running it](#running-it)
+- [Limits and safety](#limits-and-safety)
 - [Known limitations](#known-limitations)
+
+Deeper notes, one section per change with the key EXPLAIN plans: [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md).
 
 ## Architecture
 
-```
-sustc-runner (provided framework)        sustc-api (my implementation)
-┌──────────────────────────┐           ┌─────────────────────────────────┐
-│ Spring Shell CLI          │  calls    │ UserServiceImpl                 │
-│ BenchmarkService          │ ────────▶ │ VideoServiceImpl                │      JDBC
-│ (loads test data and      │ interfaces│ DanmuServiceImpl                │ ───────────▶ PostgreSQL
-│  checks the answers)      │           │ RecommenderServiceImpl          │
-└──────────────────────────┘           │ DatabaseServiceImpl (import)    │
-                                        │ AuthHelper (login & identity)   │
-                                        └─────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph runner["sustc-runner (course framework)"]
+        shell["Spring Shell commands"]
+        bench["BenchmarkService<br/>23 timed, checked steps"]
+    end
+    subgraph api["sustc-api (this project)"]
+        services["User / Video / Danmu /<br/>Recommender / Database services"]
+        auth["Authenticator"]
+        importer["BulkImporter<br/>COPY FREEZE, deferred indexes"]
+    end
+    subgraph pg["PostgreSQL 16"]
+        tables["9 tables<br/>foreign keys ON DELETE CASCADE"]
+        derived["video_stats, video_coviews"]
+        audit["log_users"]
+    end
+    shell --> services
+    bench --> services
+    bench --> importer
+    services --> auth
+    services -- "NamedParameterJdbcTemplate over HikariCP" --> tables
+    importer -- "COPY on 4 connections" --> tables
+    tables -. "statement-level triggers" .-> derived
+    tables -. "audit triggers" .-> audit
 ```
 
-`sustc-api` is packaged as a jar and loaded by `sustc-runner`. The runner reaches the database through a `DataSource` (a HikariCP connection pool) injected by Spring, calls the interfaces concurrently, and compares each result with the expected answer.
+- **Services** are Spring beans with constructor injection (`NamedParameterJdbcTemplate`, `Authenticator`, `Clock`), so a REST layer can reuse them as they are. The `Clock` makes "now" testable; the benchmark pins it to the time its data was generated.
+- **Every write is one SQL statement.** Toggles, coin donations, reviews and cascading deletes are single statements (data-modifying CTEs, `ON CONFLICT`, foreign-key cascades), so each one is atomic and race-free without an explicit transaction, and costs one round trip.
+- **Derived data lives in the database.** Per-video counters (`video_stats`) and co-viewing counts (`video_coviews`) are kept up to date by statement-level triggers, so recommendations read a few dozen rows instead of aggregating 2.2 M interaction rows per call.
+- **The importer** bulk-loads with `COPY`, rebuilds indexes and constraints afterwards from the catalog, and leaves an empty database with the complete schema if anything fails.
 
 ## Database design
 
-Schema script: [`sql/build.sql`](sql/build.sql)
+Schema: [`sql/build.sql`](sql/build.sql). Audit log: [`sql/audit.sql`](sql/audit.sql). Roles and privileges: [`sql/usercontrol.sql`](sql/usercontrol.sql).
 
 ```mermaid
 erDiagram
-    users ||--o{ videos : "posts (ownerMid)"
+    users ||--o{ videos : "owns (owner_mid)"
     users ||--o{ videos : "reviews (reviewer)"
-    users ||--o{ danmus : "sends"
-    videos ||--o{ danmus : "contains"
-    users ||--o{ followings : "mid1 follows mid2"
+    users ||--o{ followings : "follows"
     users ||--o{ viewers : "watches"
-    videos ||--o{ viewers : ""
     users ||--o{ videolikes : "likes"
-    videos ||--o{ videolikes : ""
-    users ||--o{ coins : "donates coin"
-    videos ||--o{ coins : ""
+    users ||--o{ coins : "donates"
     users ||--o{ favorites : "collects"
+    users ||--o{ danmus : "sends"
+    users ||--o{ danmulikes : "likes"
+    videos ||--o{ viewers : ""
+    videos ||--o{ videolikes : ""
+    videos ||--o{ coins : ""
     videos ||--o{ favorites : ""
-    users ||--o{ danmulikes : "likes danmu"
+    videos ||--o{ danmus : ""
     danmus ||--o{ danmulikes : ""
+    videos ||--|| video_stats : "counters"
+    videos ||--o{ video_coviews : "co-viewed with"
 
     users {
-        bigint mid PK
+        bigint mid PK "identity"
         varchar name
-        varchar sex
-        varchar birthday
-        int level
-        int coin
-        varchar identity "USER / SUPERUSER"
-        varchar password
-        varchar qq "indexed"
-        varchar wechat "indexed"
+        smallint level
+        integer coin "check >= 0"
+        varchar identity "USER or SUPERUSER"
+        varchar qq "unique, NULL if none"
+        varchar wechat "unique, NULL if none"
     }
     videos {
         varchar bv PK
-        varchar title
-        bigint ownerMid "indexed"
-        varchar ownerName
-        timestamp commitTime
-        timestamp reviewTime
-        timestamp publicTime
-        real duration
-        varchar description
-        bigint reviewer
-    }
-    danmus {
-        bigint id PK
-        varchar bv
-        bigint mid
-        real time "seconds into the video"
-        varchar content
-        timestamp postTime
+        bigint owner_mid FK
+        varchar title "unique per owner"
+        timestamp review_time "NULL until reviewed"
+        timestamp public_time "NULL = no embargo"
+        double duration
     }
     viewers {
         varchar bv PK
         bigint mid PK
-        real viewTime
+        double view_time
+    }
+    danmus {
+        bigint id PK "identity"
+        varchar bv FK
+        bigint mid FK
+        double time
+        timestamp post_time
+    }
+    video_stats {
+        varchar bv PK
+        integer viewers
+        double view_time_sum
+        integer likes
+        integer coins
+        integer favorites
+        integer danmus
+    }
+    video_coviews {
+        varchar bv PK
+        varchar other_bv PK
+        integer viewers "users who watched both"
     }
 ```
 
-Design notes:
+**Conventions.** Each relation table is keyed by `(object, user)`, so "has user U liked video V?" is a primary-key probe. Foreign keys cascade on delete, so deleting a user or a video removes everything that refers to it in the same statement (the original code left danmu likes and some interactions behind). Real values are `double precision`, so sums are not accumulated in `float4`. Ids come from identity columns, which the importer moves past the imported ids. Empty QQ / WeChat ids are stored as `NULL`, so the unique constraints only apply to users who have one.
 
-- **3 entity tables**: `users`, `videos`, `danmus`.
-- **6 relationship tables**: `followings`, `viewers`, `videolikes`, `coins`, `favorites`, `danmulikes`. The array fields in the raw data (like lists, following lists, and so on) are split into relationship tables keyed by `(user, object)`. This keeps the schema in 3NF, and checks such as "has this user already liked this video?" become a primary-key lookup.
-- `viewers` also stores the watch time `viewTime`, which feeds the average view rate and the recommendation score.
-- Each relationship table has a single-column index on each of its two columns, one for each lookup direction: "all likes of a video" and "all likes by a user".
-- `users.qq` and `users.wechat` are indexed for third-party login (see [Performance optimizations](#performance-optimizations)).
+**Indexes and what they are for.** Every index below was chosen for a specific query; the plans are in [docs/explain](docs/explain).
 
-Two more scripts:
+| Index | Serves |
+|---|---|
+| `followings (follower_mid, followee_mid)` PK | whom a user follows; mutual-follow check |
+| `followings (followee_mid, follower_mid)` | followers of a user; friend recommendations probe it once per followee as an index-only scan (the original plan scanned all 6 M rows) |
+| `viewers / videolikes / coins / favorites (bv, mid)` PK | "did U watch / like … V", per-video lists |
+| `… (mid, bv)` on the same four tables | everything a user did (user info, account deletion cascades, friends' views) as index-only scans |
+| `videos (owner_mid, title)` unique | the spec's "same title for the same user" rule; also the owner's videos |
+| `danmus (bv, time)` | danmu in a time range of a video, in order |
+| `danmus (mid)`, `danmulikes (mid)`, `videos (reviewer)` | cascades when a user is deleted |
+| `video_coviews (bv, other_bv)` PK, `(other_bv)` | similar videos: one index lookup of the video's co-viewing rows, then a top-5 sort; cascades |
 
-- **Auditing**: [`sql/audit.sql`](sql/audit.sql) adds a row-level `AFTER INSERT/UPDATE/DELETE` trigger on `users`. It writes every change, with the database user and a timestamp, to `log_users`.
-- **Permissions**: [`sql/usercontrol.sql`](sql/usercontrol.sql) creates three database roles with decreasing privileges. The super manager has full access. The manager can read and write every business table. A normal user can read, and can write only the interaction tables (danmu, likes, favorites, and so on).
+**Derived tables.** `video_stats` holds per-video counts and the sum of view times; `video_coviews` holds, for every ordered pair of videos, the number of users who watched both. Statement-level `AFTER` triggers with transition tables apply the change of a whole statement as one `INSERT … ON CONFLICT DO UPDATE` (or one `DELETE`/`UPDATE` for co-views), in key order, so concurrent statements take the row locks in the same order. The importer computes both tables in Java from the records and loads them with `COPY` like the other tables. A test replays a seeded random workload of service calls and multi-row SQL and compares both tables with a recomputation from scratch.
 
-## Features
+**Audit and roles.** `audit.sql` records every insert, update and delete on `users` (with the database role and time) through statement-level triggers. `usercontrol.sql` creates three roles with decreasing privileges, including what the derived-table triggers need, since triggers run with the invoking role's privileges.
 
-| Area | API | Implementation notes |
-|---|---|---|
-| Data import | `importData` | Batched PreparedStatement inserts. The main thread and 4 worker threads load different tables in parallel, each on its own connection |
-| Users | `register` `deleteAccount` `follow` `getUserInfo` | Login by mid + password, QQ, or WeChat. Regular users can only delete themselves; superusers can also delete regular users. Deleting an account cascades to all of the user's interaction records |
-| Videos | `postVideo` `updateVideoInfo` `deleteVideo` `reviewVideo` | Editing a reviewed video sends it back for review. Only superusers can review, and never their own videos |
-| Interactions | `likeVideo` `coinVideo` `collectVideo` | Allowed only on videos the user can find in search. A coin costs one of the user's coins and can't be taken back. Liking or collecting a second time undoes it |
-| Search | `searchVideo` | A single SQL query counts how many times each keyword appears in the title, description and uploader name (`regexp_split_to_array`), sorts by relevance and then view count, and paginates inside the database |
-| Statistics | `getAverageViewRate` `getHotspot` | Hotspot: split the video into 10-second chunks; the chunks with the most danmu are the hotspots |
-| Danmu | `sendDanmu` `displayDanmu` `likeDanmu` | A user must have watched the video before sending danmu. Danmu are shown for a time range, optionally with duplicate content removed |
-| Recommendation | `recommendNextVideo` | Similarity = number of users who watched both videos (self-join on `viewers`) |
-| | `generalRecommendations` | Popularity = like rate + coin rate + favorite rate + danmu per viewer + completion rate, each aggregated in its own subquery and then joined |
-| | `recommendVideosForUser` | Friends = mutual follows (self-join on `followings`). Recommends videos that friends watched and the user hasn't; falls back to general recommendations when there are none |
-| | `recommendFriends` | Recommends users the user doesn't follow yet, ranked by number of shared followings |
+## Performance
 
-## Performance optimizations
+### Results
 
-These numbers were measured on my machine in 2023.
+<!-- benchmark-table:start -->
+| Step | Baseline ms (n=3) | Optimized ms (n=3) | Speedup | Passed (baseline → optimized) |
+|---|---:|---:|---:|---:|
+| 1 import | 57,674 [56,775–58,559] | 8,259 [8,095–8,424] | **7.0×** | – |
+| 2 search | 197 [184–331] | 39 [37–50] | **5.1×** | 18 → 20 / 20 |
+| 3 view rate | 39 [38–49] | 17 [17–26] | **2.3×** | 60 → 61 / 61 |
+| 4 hotspot | 10 [9–14] | 27 [24–28] | 0.37× | 56 → 56 / 56 |
+| 5 similar videos | 1,736 [1,624–1,814] | 24 [23–28] | **72.3×** | 43 → 43 / 43 |
+| 6 general rec | 831 [762–854] | 7 [4–8] | **118.7×** | 11 → 11 / 11 |
+| 7 user rec | 1,580 [1,460–1,630] | 56 [55–66] | **28.2×** | 27 → 27 / 27 |
+| 8 friend rec | 8,910 [1,932–9,008] | 549 [523–628] | **16.2×** | 142 → 142 / 142 |
+| 9 danmu display | 34 [25–37] | 77 [67–104] | 0.44× | 382 → 382 / 382 |
+| 10 danmu send | 120 [106–127] | 313 [303–585] | 0.38× | 1016 → 1016 / 1016 |
+| 11 user info | 202 [171–213] | 155 [141–159] | **1.3×** | 500 → 500 / 500 |
+| 12 danmu like | not timed | not timed | – | 500 → 500 / 500 |
+| 13 coin | 309 [302–364] | 444 [374–1,090] | 0.70× | 511 → 511 / 511 |
+| 14 like | 266 [261–306] | 575 [571–837] | 0.46× | 686 → 686 / 686 |
+| 15 collect | 255 [240–276] | 518 [441–531] | 0.49× | 644 → 644 / 644 |
+| 16 post video | 22 [21–28] | 73 [70–94] | 0.30× | 184 → 184 / 184 |
+| 17 register | 57 [53–67] | 110 [89–110] | 0.52× | 273 → 273 / 273 |
+| 18 update video | 19 [12–23] | 30 [22–32] | 0.63× | 184 → 184 / 184 |
+| 19 review | 12 [11–12] | 26 [22–31] | 0.46× | 35 → 35 / 35 |
+| 20 search after update | 85 [79–145] | 7 [6–10] | **12.1×** | 5 → 6 / 6 |
+| 21 delete video | 287 [279–290] | 529 [525–555] | 0.54× | 55 → 55 / 55 |
+| 22 delete account | 205 [200–350] | 303 [278–309] | 0.68× | 199 → 199 / 199 |
+| 23 follow | 20 [20–27] | 44 [43–47] | 0.45× | 87 → 87 / 87 |
+| **Sum of query steps 2–23** | **15,196** | **3,923** | **3.9×** | |
+| **All test cases** | | | | **5618 → 5622 / 5622** |
+<!-- benchmark-table:end -->
 
-| Optimization | Approach | Effect |
-|---|---|---|
-| Batch inserts | One prepared statement per table, sent in one go with `addBatch` / `executeBatch` instead of one SQL statement per row | Import time down about **30%** (two runs: 176.6 s → 121.8 s and 494.4 s → 346.7 s) |
-| Parallel import | The 9 tables have no foreign-key dependencies, so they are split into 5 groups loaded in parallel on 5 connections | A further **38%** on top of batching (121.8 s → 75.4 s) |
-| Login indexes | Third-party login looks users up by `qq` and `wechat`, so both columns are indexed | Total time for 1,016 login lookups went from 602 ms to 38 ms, about **16×** |
-| Computing in the database | Search relevance, recommendation scores, sorting and pagination all happen in SQL; only the bv IDs of the requested page come back to Java | Avoids moving large result sets into the application |
+Generated by `python3 scripts/bench_table.py --write README.md README.zh-CN.md` from the raw reports in [docs/benchmark](docs/benchmark) (`baseline-*.json`: the original implementation; `optimized-*.json`: this version). Times are the median of 3 runs with the range in brackets; speedups divide the two medians. Step 12 is not timed by the framework. The older `original-result.json` and `reference-standard.json` there are from 2023 and another machine and are not used.
 
-## Benchmark results
+### What made the difference
 
-The benchmark has 23 steps. Step 1 imports about 38,000 users plus hundreds of thousands of watch and interaction records (the test data is not included in this repo). The other 22 steps call the APIs concurrently and compare each result with the expected answer.
+Per-query times are from `EXPLAIN (ANALYZE, BUFFERS)` on the same data ([docs/explain](docs/explain), regenerated by `scripts/explain_plans.sh`). Its per-node timing adds to every row a plan produces: on a 638 k-row join and aggregation here it reported 200 ms, against 130 ms with `TIMING OFF` and 123 ms run plainly ([docs/experiments/explain-overhead.txt](docs/experiments/explain-overhead.txt)). So the row-heavy original plans below are slower in these listings than they run, and the ratios between single queries overstate the gain; the end-to-end figures are in the table above.
 
-| # | Test | Passed / total | Time (ms) | Reference time (ms) |
-|---|---|---|---|---|
-| 1 | Import data | — | 76,115 | 281,878 |
-| 2 | Video search | 18 / 20 | 792 | 219 |
-| 3 | Average view rate | 60 / 61 | 76 | 47 |
-| 4 | Hotspot chunks | 56 / 56 | 11 | 10 |
-| 5 | Similar-video recommendation | 43 / 43 | 4,687 | 1,815 |
-| 6 | General recommendation | 11 / 11 | 1,467 | 944 |
-| 7 | Personalized recommendation | 27 / 27 | 2,770 | 2,844 |
-| 8 | Friend recommendation | 142 / 142 | 15,650 | 7,900 |
-| 9 | Display danmu | 382 / 382 | 25 | 18 |
-| 10 | Send danmu | 1016 / 1016 | 94 | 44 |
-| 11 | User info | 500 / 500 | 364 | 247 |
-| 12 | Like danmu | 500 / 500 | — | — |
-| 13 | Coin | 511 / 511 | 553 | 163 |
-| 14 | Like | 686 / 686 | 577 | 193 |
-| 15 | Collect | 644 / 644 | 506 | 169 |
-| 16 | Post video | 184 / 184 | 40 | 39 |
-| 17 | Register | 273 / 273 | 50 | 42 |
-| 18 | Update video info | 184 / 184 | 52 | 44 |
-| 19 | Review video | 35 / 35 | 19 | 12 |
-| 20 | Search after update and review | 5 / 6 | 292 | 54 |
-| 21 | Delete video | 55 / 55 | 400 | 376 |
-| 22 | Delete account | 199 / 199 | 301 | 147 |
-| 23 | Follow | 87 / 87 | 45 | 27 |
+| Change | Effect |
+|---|---|
+| Co-viewing counts kept in `video_coviews` | similar videos: a self-join of the 875 k-row `viewers` table (164.5 ms) becomes an index lookup of that video's 43 co-viewing rows plus a top-5 sort (0.06 ms) |
+| Per-video counters kept in `video_stats` | general recommendations: a hash aggregate over each of the five interaction tables, 2.2 M rows in all (725 ms), becomes a join of two 44-row tables (0.09 ms); users without friends fall back to it, so personalized recommendations gain too |
+| Covering index `followings (followee_mid, follower_mid)` and a rewritten friend query | friend recommendations, median case: 331 ms → 11 ms; largest case (1,762 followings): 441 ms → 122 ms. Without statistics the original plan took 608 ms / 663 ms, and the original importer never ran `ANALYZE` (its three runs took 1.9 s, 8.9 s and 9.0 s for this step) |
+| Search counts non-overlapping occurrences with `replace()` and reads view counts from `video_stats` | 13.9 ms → 0.37 ms for a two-keyword search; the original joined every view of every matching video, and used the keywords as regular expressions |
+| Bulk import with `COPY … FREEZE`, indexes and constraints built afterwards, foreign keys validated in parallel, `VACUUM (ANALYZE)` at the end | 57.7 s → 8.3 s; phases (median): load 2.3 s, indexes 4.3 s, constraints 1.1 s, vacuum/analyze 0.2 s |
 
-- The "Passed / total" and "Time" columns are from the 2023 version. Raw file: [`docs/benchmark/original-result.json`](docs/benchmark/original-result.json).
-- The reference numbers come with the framework: [`docs/benchmark/reference-standard.json`](docs/benchmark/reference-standard.json). They were not measured on the same machine, so compare times only roughly.
-- The framework does not record a time for step 12.
+### The write path
+
+Single-row writes (coin, like, collect, post, register, update, follow, review, danmu send) and the two deletes are slower than before, by 11–309 ms per step. Measured with pgbench, one client, 1,000 transactions per line ([docs/experiments/write-latency.txt](docs/experiments/write-latency.txt), `scripts/write_latency.sh`):
+
+| likeVideo (authentication + toggle) | latency |
+|---|---|
+| right after a fresh import (≈ 140 MiB of dirty pages still to write back) | 1.30 ms |
+| 120 s later | 0.78 ms |
+| without the derived-table triggers | 0.69 ms |
+| … and without the foreign keys | 0.80 ms (no measurable cost) |
+| original 5-statement sequence vs. current, alternating rounds | 0.94–1.24 ms vs. 0.81–0.90 ms |
+
+So, at steady state a write is not slower than the original one: the triggers add about 0.1–0.2 ms and the foreign keys nothing measurable. The benchmark, however, runs its write steps seconds after an import that now finishes in 8 s instead of 58 s, while the import's data is still being written back and a checkpoint is in progress (every first change of a page after a checkpoint starts writes a full-page image to the WAL). The deletes are also doing more work than before: the original schema has no foreign keys, and its deletes left behind the danmu likes of a deleted video and, for a deleted user, everything other users had done on that user's videos and danmus.
+
+### Methodology
+
+- One machine (4 vCPUs, 16 GB RAM), one PostgreSQL 16 server with the same configuration for all runs (`shared_buffers` 1 GB, `synchronous_commit` on, `max_wal_size` 1 GB, JIT on). The baseline is the original implementation at commit `2e811bd` with its own schema.
+- Each run starts from a freshly created schema (`sql/build.sql` + `sql/audit.sql`) and runs the unchanged framework benchmark with the service clock pinned to 2023-12-30 12:00 +08:00 (`-Dsustc.clock.start=…`, JVM time zone Asia/Shanghai), when the bundled data was generated: several cases compare public times with "now". The original implementation reads the wall clock (`Instant.now()`) and ignores the pin; none of its 4 failures depends on the date (three searches whose keywords contain repeated spaces, and one view rate that is off in the fourth digit because view times are summed as `real`).
+- 3 runs per version, one after another, each holding an exclusive lock so that no other benchmark on the machine overlapped it; both groups were preceded by at least one run that is not counted. Reported: median per step, range in brackets; pass counts are the minimum over the runs.
+- The recorded runs used a harness script outside this repository; `scripts/benchmark.sh --label NAME` performs the same steps with the same JVM flags (localhost only by default, see below).
+
+## Correctness
+
+The original implementation failed 4 benchmark cases and had several problems the benchmark does not check. This version fixes them, each covered by a test:
+
+- `follow` returns the state after the call; deleting an account removes the user's videos and everything on them, as well as everything the user did; deleting a video also removes its danmu likes.
+- Similar videos break ties by `bv`; search relevance counts non-overlapping, case-insensitive occurrences (the Javadoc examples are tests) and breaks ties by views, then `bv`.
+- Unreviewed videos and videos before their public time are visible only to their owner and superusers, in search and for every interaction.
+- Coin donation is one statement: the coin is charged only if the donation row is inserted (tested with 8 concurrent threads); every other multi-step write is a single statement too.
+- Identity sequences continue after the imported ids; no code path leaks a pooled connection (checked after every integration test).
+
+Interpretations of the specification where it is ambiguous are listed in [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md#interpretations-of-the-specification).
 
 ## Running it
 
-You need JDK 17 or 21 and Docker (or a PostgreSQL 15+ you installed yourself).
+Requirements: JDK 17 or 21, Docker (for the tests and, optionally, the database).
 
 ```bash
-# 1. Start the database (user, password and database are all "sustc", matching application.yml)
+# Build and run all tests (needs Docker: Testcontainers starts PostgreSQL 16)
+./gradlew build
+
+# A database for the runner: user, password and database are all "sustc"
 cd sustc-runner && docker compose up -d && cd ..
 
-# 2. Create the tables
-psql -h localhost -U sustc -d sustc -f sql/build.sql
+# The course's test data (.ser files, not in this repository) goes to
+#   sustc-runner/data/import/  and  sustc-runner/data/test/
 
-# 3. Put the test data (.ser files, not included in this repo) in sustc-runner/data/import/ and sustc-runner/data/test/
+# One benchmark run against a fresh schema; writes docs/benchmark/<label>.json
+scripts/benchmark.sh --label my-run
 
-# 4. Run the benchmark; results go to sustc-runner/benchmark-<id>-<timestamp>.json
-./gradlew :sustc-runner:benchmark
+# Rebuild the README table from docs/benchmark/baseline-*.json and optimized-*.json
+python3 scripts/bench_table.py --write README.md README.zh-CN.md
 
-# Or start the interactive shell and call the APIs by hand
+# Interactive shell
 ./gradlew :sustc-runner:bootRun
 ```
 
-> If the project path contains non-ASCII characters, the Lombok plugin may fail with `MalformedInputException`. Add
-> `"-Dorg.gradle.jvmargs=-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"`, or move the project to an ASCII-only path.
+## Limits and safety
 
-To package `sustc-api` as a standalone jar: `./gradlew :sustc-api:submitJar`. The output is `submit/sustc-api.jar`.
+- `scripts/benchmark.sh`, `scripts/explain_plans.sh` and `scripts/write_latency.sh` **drop and recreate the `public` schema** of the target database. They accept only a loopback host (`localhost`, `127.*`, `::1`) unless `--allow-remote` is passed. Set `BENCH_LOCK=/path/to/lockfile` to serialize timing runs on a shared machine.
+- Load on the database is bounded by the connection pool (HikariCP, default 10 connections; `spring.datasource.hikari.maximum-pool-size`) and by the importer's parallelism (`sustc.import.parallelism`, default 4 connections, at most one `COPY` stream each). There is no other network traffic and no bandwidth throttling.
+- The benchmark itself runs some steps on a parallel stream; that is part of the unchanged framework.
 
 ## Known limitations
 
-- **No transactions**: deleting an account or a video runs several DELETE statements, so a failure halfway leaves partial data. Donating a coin is a read followed by a write, so under heavy concurrency a coin could be spent twice. These should run in a transaction or use a conditional UPDATE.
-- **Connections aren't always managed with try-with-resources**: most methods leak their database connection when an exception is thrown.
-- **Search**: unreviewed videos aren't filtered out, and only some regex special characters in keywords are escaped. These are probably why steps 2 and 20 don't fully pass (not verified case by case).
-- **Recommendation**: similar-video recommendation lacks the tie-break "then by bv ascending", and in general recommendation the danmu-per-viewer term shouldn't be capped at 1.
-- **Schema**: no foreign keys or NOT NULL constraints, so cascading deletes depend entirely on application code. `danmus.bv` has no index. New user mids and danmu ids are random numbers; they should come from a sequence.
-- **Security**: passwords are stored in plain text (the test data itself stores them in plain text).
-- **Import**: the main thread polls a plain array to find out whether the import threads are done. It should use `Thread.join()` or an `ExecutorService`; as it is, if any thread throws, the main thread waits forever.
+- Passwords are stored in plain text, as in the provided data.
+- Writes are slower right after a bulk import (see [the write path](#the-write-path)); a production setup would schedule a checkpoint after the import, which needs a privileged role.
+- Recommendations are not filtered by visibility; the specification does not ask for it.
+- `TRUNCATE` bypasses the derived-table triggers; `DatabaseService.truncate()` empties the derived tables together with everything else.
+- Each service call authenticates with a separate query before its statement; folding authentication into the statement would save one round trip per call.

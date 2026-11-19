@@ -46,10 +46,11 @@ set search_path = public;
 explain (analyze, buffers) :general_after;
 
 ------------------------------------------------------------------- user recommendations
--- mid 422017, page size 8, page 1: of the benchmark's 22 cases the one whose friends (14 of them)
--- watched the most videos. 13 of the 22 cases have no friends at all; for those the original
--- implementation ran its general-recommendation query (see general-rec.before.txt). The original
--- query has no LIMIT: it returns every candidate and the Java code drops watched videos and pages.
+-- mid 422017, page size 8, page 1: of the 22 benchmark cases with valid credentials (27 cases in
+-- all) the one whose friends (14 of them) watched the most videos. 13 of the 22 have no friends;
+-- for those the original implementation ran its general-recommendation query (see
+-- general-rec.before.txt). The original query has no LIMIT: it returns every candidate and the
+-- Java code drops watched videos and pages.
 \o docs/explain/user-rec.before.txt
 set search_path = original;
 \set user_before 'select v.bv,t.cnt,u.level,u.mid,u.name,v.publictime,vie.viewtime,vie.mid as chkmid from videos v inner join (select r.bv,count(f.mid2) as cnt from (select a.mid2 from followings a inner join  followings b on a.mid1=b.mid2 and a.mid2=b.mid1 where a.mid1=422017) f inner join viewers r on f.mid2=r.mid group by r.bv) t on v.bv=t.bv inner join users u on v.ownermid=u.mid left join viewers vie on vie.mid=422017 and v.bv=vie.bv order by t.cnt desc,u.level desc,v.publictime desc'
@@ -63,8 +64,9 @@ set search_path = public;
 explain (analyze, buffers) :user_after;
 
 ----------------------------------------------------------------- friend recommendations
--- Two of the benchmark's 133 cases: mid 1727180 (page size 6, page 5) follows 43 accounts, the
--- median; mid 882400 (page size 8, page 3) follows 1,762, the most.
+-- Two of the 133 benchmark cases with valid credentials (142 in all): mid 1727180 (page size 6,
+-- page 5) follows 43 accounts, the median; mid 882400 (page size 8, page 3) follows 1,762, the
+-- most.
 \o docs/explain/friend-rec.before.txt
 set search_path = original;
 \set friend_before_median 'select s.mid1,s.cnt,u.level from (select t.mid1,h.mid2 as chkmid,t.cnt from (select b.mid1,count(*) as cnt from followings a inner join followings b on a.mid2=b.mid2 where a.mid1=1727180 and b.mid1!=1727180 group by b.mid1) t left join followings h on h.mid1=1727180 and h.mid2=t.mid1) s inner join  users u on s.mid1=u.mid where s.chkmid is null order by s.cnt desc,u.level desc,s.mid1  offset 24 limit 6'

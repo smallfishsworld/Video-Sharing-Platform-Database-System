@@ -113,8 +113,8 @@ create function count_occurrences(haystack text, needle text) returns integer
 -- Two tables cache aggregates that the read paths would otherwise recompute from hundreds of
 -- thousands of rows on every call. Statement-level triggers (all named derived_*) keep them exact
 -- inside the writing transaction: they read the affected rows from transition tables, so a
--- statement costs one set-based update no matter how many rows it touches, and they lock the rows
--- they change in key order, so concurrent writers cannot deadlock on them.
+-- statement costs one set-based update no matter how many rows it touches, and they update the
+-- rows in key order, so two triggers that change the same counters lock them in the same order.
 --
 -- TRUNCATE fires no row triggers: truncate the derived tables together with their sources (the
 -- service's truncate() truncates every table). BulkImporter drops the derived_* triggers while it
@@ -160,9 +160,10 @@ create trigger derived_videos_insert
     for each statement execute function derived_videos();
 
 -- One counter per interaction table; tg_table_name selects it. Every change is a single upsert of
--- signed deltas sorted by bv: ON CONFLICT locks the counter rows in that order, so concurrent
--- statements that touch several videos cannot deadlock. Rows of videos that no longer exist (a
--- video being deleted cascades to its interactions) are skipped; their counters go with them.
+-- signed deltas sorted by bv: ON CONFLICT locks the counter rows in that order, so two upserts
+-- that touch the same videos take their row locks in the same order. Rows of videos that no
+-- longer exist (a video being deleted cascades to its interactions) are skipped; their counters
+-- go with them.
 create function derived_interactions() returns trigger
     language plpgsql as
 $$

@@ -36,7 +36,9 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
-    // Integration tests apply the real schema scripts from the repository's sql/ directory.
+    // Integration tests apply the real schema scripts from the repository's sql/ directory, so
+    // those scripts are inputs: a schema change must re-run the tests, not reuse a cached result.
+    inputs.dir(rootProject.file("sql")).withPropertyName("sqlScripts").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("sustc.sql.dir", rootProject.file("sql").absolutePath)
     maxHeapSize = "768m"
     testLogging {
