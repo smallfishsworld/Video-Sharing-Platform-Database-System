@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Builds the before/after benchmark table of the READMEs from the reports in docs/benchmark.
+"""Builds the before/after benchmark table of the READMEs from the course benchmark's reports.
 
     python3 scripts/bench_table.py                      # print the English table
     python3 scripts/bench_table.py --write README.md README.zh-CN.md
+    python3 scripts/bench_table.py --dir docs/benchmark/round1 --before 'baseline-*.json' --after 'optimized-*.json'
 
-Every baseline-*.json and optimized-*.json file is one run of the course benchmark (see
-scripts/benchmark.sh). For each step the table shows the median elapsed time over the runs of a
-group, the range in brackets, and the speedup computed from the two medians; the pass count is
-the minimum over the runs. --write replaces the text between the markers
+By default it reads the interleaved runs of scripts/bench_series.sh in docs/benchmark/round2/plain:
+c2-B<i>.json (the original implementation) and c2-O<i>.json (this version); --dir, --before and
+--after select other runs (.monitor.json files are skipped). For each step the table shows the
+median elapsed time over the runs of a group, the range in brackets, and the speedup computed from
+the two medians; the pass count is the minimum over the runs. Below the steps it sums the medians
+of the 10 read steps, of the 11 write steps and of all 21 timed steps (step 1 is the import, step
+12 is not timed by the framework). --write replaces the text between the markers
 <!-- benchmark-table:start --> and <!-- benchmark-table:end --> in each given file; a file whose
 name contains "zh" gets Chinese headings.
 """
@@ -45,6 +49,8 @@ STEPS = {
     23: ("follow", "关注", 87),
 }
 TOTAL_CASES = sum(t for _, _, t in STEPS.values() if t)
+READ_STEPS = [2, 3, 4, 5, 6, 7, 8, 9, 11, 20]
+WRITE_STEPS = [10, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23]
 
 HEADINGS = {
     "en": {
@@ -53,7 +59,8 @@ HEADINGS = {
         "after": "Optimized ms",
         "speedup": "Speedup",
         "pass": "Passed (baseline → optimized)",
-        "sum": "Sum of query steps 2–23",
+        "sums": ("Read steps 2–9, 11, 20 (sum)", "Write steps 10, 13–19, 21–23 (sum)",
+                 "All 21 timed steps (sum)"),
         "cases": "All test cases",
         "untimed": "not timed",
     },
@@ -63,7 +70,7 @@ HEADINGS = {
         "after": "优化后 ms",
         "speedup": "加速比",
         "pass": "通过数（基线 → 优化后）",
-        "sum": "查询步骤 2–23 合计",
+        "sums": ("读步骤 2–9、11、20 合计", "写步骤 10、13–19、21–23 合计", "全部 21 个计时步骤合计"),
         "cases": "全部测试用例",
         "untimed": "不计时",
     },
@@ -72,10 +79,10 @@ START = "<!-- benchmark-table:start -->"
 END = "<!-- benchmark-table:end -->"
 
 
-def load_group(directory, prefix):
-    files = sorted(glob.glob(os.path.join(directory, prefix + "-*.json")))
+def load_group(directory, pattern):
+    files = sorted(f for f in glob.glob(os.path.join(directory, pattern)) if not f.endswith(".monitor.json"))
     if not files:
-        sys.exit(f"no {prefix}-*.json files in {directory}")
+        sys.exit(f"no {pattern} files in {directory}")
     runs = []
     for f in files:
         with open(f, encoding="utf-8") as fh:
@@ -117,15 +124,11 @@ def table(before, after, n_before, n_after, lang):
         f"| {h['step']} | {h['before']} (n={n_before}) | {h['after']} (n={n_after}) | {h['speedup']} | {h['pass']} |",
         "|---|---:|---:|---:|---:|",
     ]
-    sum_before = sum_after = 0
     pass_before = pass_after = 0
     for sid, (en, zh, total) in STEPS.items():
         b, a = before[sid], after[sid]
         name = f"{sid} {en if lang == 'en' else zh}"
         tb, ta = fmt_time(*b[:3]), fmt_time(*a[:3])
-        if sid >= 2 and b[0] is not None and a[0] is not None:
-            sum_before += b[0]
-            sum_after += a[0]
         if b[3] is not None:
             pass_before += b[3]
         if a[3] is not None:
@@ -133,8 +136,11 @@ def table(before, after, n_before, n_after, lang):
         passed = "–" if total is None else f"{b[3]} → {a[3]} / {total}"
         lines.append(
             f"| {name} | {tb or h['untimed']} | {ta or h['untimed']} | {fmt_speedup(b[0], a[0])} | {passed} |")
-    lines.append(
-        f"| **{h['sum']}** | **{sum_before:,.0f}** | **{sum_after:,.0f}** | {fmt_speedup(sum_before, sum_after)} | |")
+    for label, ids in zip(h["sums"], (READ_STEPS, WRITE_STEPS, READ_STEPS + WRITE_STEPS)):
+        sum_before = sum(before[i][0] for i in ids)
+        sum_after = sum(after[i][0] for i in ids)
+        lines.append(
+            f"| **{label}** | **{sum_before:,.0f}** | **{sum_after:,.0f}** | {fmt_speedup(sum_before, sum_after)} | |")
     lines.append(f"| **{h['cases']}** | | | | **{pass_before} → {pass_after} / {TOTAL_CASES}** |")
     return "\n".join(lines)
 
@@ -142,12 +148,14 @@ def table(before, after, n_before, n_after, lang):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs",
-                                                      "benchmark", "round1"))
+                                                      "benchmark", "round2", "plain"))
+    parser.add_argument("--before", default="c2-B*.json", help="file pattern of the original implementation's runs")
+    parser.add_argument("--after", default="c2-O*.json", help="file pattern of this version's runs")
     parser.add_argument("--write", nargs="*", default=[], metavar="FILE")
     args = parser.parse_args()
 
-    before_files, before_runs = load_group(args.dir, "baseline")
-    after_files, after_runs = load_group(args.dir, "optimized")
+    before_files, before_runs = load_group(args.dir, args.before)
+    after_files, after_runs = load_group(args.dir, args.after)
     before, after = summarize(before_runs), summarize(after_runs)
 
     if not args.write:
