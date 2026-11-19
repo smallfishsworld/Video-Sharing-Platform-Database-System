@@ -403,9 +403,18 @@ public final class WriteBench {
                     continue;
                 }
                 String lsn0 = lsn();
+                Sampler sampler = opt.containsKey("sample") ? new Sampler(this) : null;
+                long started = System.currentTimeMillis();
                 Batch b = runCalls(pool, clients, measured.get(op));
+                long ended = System.currentTimeMillis();
                 String lsn1 = lsn();
-                results.add(b.summary(op, clients));
+                Map<String, Object> summary = b.summary(op, clients);
+                summary.put("started_epoch_ms", started);
+                summary.put("ended_epoch_ms", ended);
+                if (sampler != null) {
+                    summary.put("sample", sampler.stop(b.nanos.length));
+                }
+                results.add(summary);
                 ranges.add(new String[] {lsn0, lsn1});
             }
             // WAL written during each operation's calls (server-wide, so other sessions count too),
@@ -454,6 +463,121 @@ public final class WriteBench {
         return r;
     }
 
+    /**
+     * With --sample: while one operation's measured calls run, polls pg_stat_activity about every
+     * 2 ms from a connection of its own and counts what the database's other client backends are
+     * doing (state, or the wait event of an active backend; "CPU" when an active backend waits on
+     * nothing), and reads the CPU time of those backends and of this JVM from /proc.
+     */
+    static final class Sampler {
+        final Thread thread;
+        final Map<String, Integer> counts = new TreeMap<>();
+        volatile boolean running = true;
+        int samples;
+        final Map<Integer, Long> backendTicks0;
+        final long jvmTicks0;
+        final long[] machine0;
+        final Connection con;
+
+        Sampler(WriteBench wb) throws Exception {
+            con = java.sql.DriverManager.getConnection(wb.url, wb.opt.getOrDefault("user", "sustc"),
+                    wb.opt.getOrDefault("password", "sustc"));
+            backendTicks0 = backendTicks();
+            jvmTicks0 = procTicks("self");
+            machine0 = machineTicks();
+            thread = new Thread(this::loop, "sampler");
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        Map<Integer, Long> backendTicks() throws SQLException {
+            Map<Integer, Long> m = new HashMap<>();
+            try (Statement st = con.createStatement();
+                    ResultSet rs = st.executeQuery("select pid from pg_stat_activity where datname = current_database()"
+                            + " and backend_type = 'client backend' and pid <> pg_backend_pid()")) {
+                while (rs.next()) {
+                    int pid = rs.getInt(1);
+                    long t = procTicks(Integer.toString(pid));
+                    if (t >= 0) {
+                        m.put(pid, t);
+                    }
+                }
+            }
+            return m;
+        }
+
+        /** utime + stime of /proc/<pid>/stat in clock ticks, or -1. */
+        static long procTicks(String pid) {
+            try {
+                String st = Files.readString(Paths.get("/proc/" + pid + "/stat"));
+                String[] f = st.substring(st.lastIndexOf(')') + 2).split(" ");
+                return Long.parseLong(f[11]) + Long.parseLong(f[12]);
+            } catch (Exception e) {
+                return -1;
+            }
+        }
+
+        /** {busy, total} clock ticks of the whole machine from /proc/stat. */
+        static long[] machineTicks() throws Exception {
+            String[] f = Files.readAllLines(Paths.get("/proc/stat")).get(0).trim().split("\\s+");
+            long total = 0;
+            for (int i = 1; i < f.length; i++) {
+                total += Long.parseLong(f[i]);
+            }
+            long idle = Long.parseLong(f[4]) + Long.parseLong(f[5]);
+            return new long[] {total - idle, total};
+        }
+
+        void loop() {
+            String q = "select case when state = 'active' then coalesce(wait_event_type || ':' || wait_event, 'CPU')"
+                    + " else coalesce(state, '?') end, count(*) from pg_stat_activity"
+                    + " where datname = current_database() and backend_type = 'client backend'"
+                    + " and pid <> pg_backend_pid() group by 1";
+            try (Statement st = con.createStatement()) {
+                while (running) {
+                    try (ResultSet rs = st.executeQuery(q)) {
+                        while (rs.next()) {
+                            counts.merge(rs.getString(1), rs.getInt(2), Integer::sum);
+                        }
+                    }
+                    samples++;
+                    Thread.sleep(2);
+                }
+            } catch (Exception e) {
+                counts.merge("sampler error: " + e.getMessage(), 1, Integer::sum);
+            }
+        }
+
+        Map<String, Object> stop(int calls) throws Exception {
+            running = false;
+            thread.join();
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("samples", samples);
+            Map<String, Object> per = new LinkedHashMap<>();
+            counts.entrySet().stream()
+                    .sorted((a, b) -> b.getValue() - a.getValue())
+                    .forEach(e -> per.put(e.getKey(), round(e.getValue() / (double) Math.max(1, samples))));
+            r.put("backends_per_sample", per);
+            Map<Integer, Long> t1 = backendTicks();
+            long backend = 0;
+            for (Map.Entry<Integer, Long> e : t1.entrySet()) {
+                Long t0 = backendTicks0.get(e.getKey());
+                if (t0 != null) {
+                    backend += e.getValue() - t0;
+                }
+            }
+            long jvm = procTicks("self") - jvmTicks0;
+            long[] m1 = machineTicks();
+            // Clock ticks are 10 ms on Linux (USER_HZ 100).
+            r.put("backend_cpu_ms_per_call", round(backend * 10.0 / calls));
+            r.put("jvm_cpu_ms_per_call", round(jvm * 10.0 / calls));
+            r.put("machine_busy_cpu_ms_per_call", round((m1[0] - machine0[0]) * 10.0 / calls));
+            r.put("machine_cpu_ms_total", (m1[1] - machine0[1]) * 10);
+            con.close();
+            return r;
+        }
+    }
+
     static final class Batch {
         long[] nanos;
         int done;
@@ -479,6 +603,7 @@ public final class WriteBench {
             r.put("throughput_per_s", round(s.length / (wallNanos / 1e9)));
             r.put("p50_ms", round(s[(int) Math.floor(0.50 * (s.length - 1))] / 1e6));
             r.put("p95_ms", round(s[(int) Math.floor(0.95 * (s.length - 1))] / 1e6));
+            r.put("p99_ms", round(s[(int) Math.floor(0.99 * (s.length - 1))] / 1e6));
             r.put("mean_ms", round(Arrays.stream(s).average().orElse(0) / 1e6));
             r.put("max_ms", round(s[s.length - 1] / 1e6));
             return r;
@@ -1012,7 +1137,7 @@ public final class WriteBench {
                 throw new IllegalArgumentException("unexpected argument " + args[i]);
             }
             String k = args[i].substring(2);
-            if (Set.of("allow-remote", "no-import", "settle").contains(k)) {
+            if (Set.of("allow-remote", "no-import", "sample", "settle").contains(k)) {
                 o.put(k, "true");
             } else if (i + 1 < args.length) {
                 o.put(k, args[++i]);
