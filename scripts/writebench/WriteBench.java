@@ -69,6 +69,10 @@ import org.springframework.transaction.PlatformTransactionManager;
  *       pair, and concurrent deletions of two accounts with crossing interactions; report the
  *       invariant violations and exceptions; connections that a call left open are closed and
  *       counted.
+ *   <li>reads: replay the benchmark's cases of step 4 (hotspots) and step 9 (danmu display) from
+ *       sustc-runner/data/test {@code --passes} times in this fresh JVM, each pass as the benchmark
+ *       runs a step (a parallel stream), and report each pass's time and correct answers; the
+ *       benchmark times only the first pass.
  * </ul>
  *
  * <p>Load limits: at most {@value #MAX_CLIENTS} client threads and {@value #MAX_OPS} calls per
@@ -142,6 +146,8 @@ public final class WriteBench {
             case "steady" -> out.put("results", b.steady(clients, warmup, ops));
             case "count" -> out.put("results", b.count(ops));
             case "stress" -> out.put("results", b.stress(Integer.parseInt(o.getOrDefault("trials", "50"))));
+            case "reads" -> out.put("results", b.reads(Paths.get(o.getOrDefault("data", "sustc-runner/data")),
+                    Integer.parseInt(o.getOrDefault("passes", "5"))));
             default -> throw new IllegalArgumentException("unknown mode " + mode);
         }
         out.put("finished", Instant.now().toString());
@@ -648,6 +654,47 @@ public final class WriteBench {
 
     // Stress ----------------------------------------------------------------------------------------
 
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> reads(Path dir, int passes) throws Exception {
+        if (passes < 1 || passes > 20) {
+            throw new IllegalArgumentException("passes must be 1..20");
+        }
+        Map<String, Set<Integer>> hotspot = (Map<String, Set<Integer>>) Data.read(dir.resolve("test/video-hotspot.ser"));
+        List<Map.Entry<Object[], Integer>> display =
+                (List<Map.Entry<Object[], Integer>>) Data.read(dir.resolve("test/danmu-display.ser"));
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (String step : List.of("hotspot", "danmuDisplay")) {
+            for (int pass = 1; pass <= passes; pass++) {
+                AtomicInteger correct = new AtomicInteger();
+                long t0 = System.nanoTime();
+                if (step.equals("hotspot")) {
+                    hotspot.entrySet().parallelStream().forEach(c -> {
+                        Set<Integer> got = videos.getHotspot(c.getKey());
+                        if (got != null && new HashSet<>(got).equals(new HashSet<>(c.getValue()))) {
+                            correct.incrementAndGet();
+                        }
+                    });
+                } else {
+                    display.parallelStream().forEach(c -> {
+                        Object[] a = c.getKey();
+                        List<Long> got = danmus.displayDanmu((String) a[0], (float) a[1], (float) a[2], (boolean) a[3]);
+                        if ((got == null ? 0 : got.size()) == c.getValue()) {
+                            correct.incrementAndGet();
+                        }
+                    });
+                }
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("step", step);
+                r.put("pass", pass);
+                r.put("cases", step.equals("hotspot") ? hotspot.size() : display.size());
+                r.put("correct", correct.get());
+                r.put("wall_ms", round((System.nanoTime() - t0) / 1e6));
+                results.add(r);
+            }
+        }
+        return results;
+    }
+
     Map<String, Object> stress(int trials) throws Exception {
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("coin_double_spend", withLeaks(coinStress(trials)));
@@ -897,19 +944,25 @@ public final class WriteBench {
         Map<Long, List<VideoRecord>> watched = new HashMap<>();
         Set<Long> owners = new HashSet<>();
 
+        /** The benchmark's Fury settings (BenchmarkConfig). */
+        static final io.fury.ThreadSafeFury FURY = io.fury.Fury.builder()
+                .requireClassRegistration(false)
+                .withLanguage(io.fury.config.Language.JAVA)
+                .withRefTracking(true)
+                .withCompatibleMode(io.fury.config.CompatibleMode.COMPATIBLE)
+                .withAsyncCompilation(true)
+                .buildThreadSafeFury();
+
+        static Object read(Path file) throws Exception {
+            return FURY.deserialize(Files.readAllBytes(file));
+        }
+
         @SuppressWarnings("unchecked")
         static Data load(Path dir) throws Exception {
-            io.fury.ThreadSafeFury fury = io.fury.Fury.builder()
-                    .requireClassRegistration(false)
-                    .withLanguage(io.fury.config.Language.JAVA)
-                    .withRefTracking(true)
-                    .withCompatibleMode(io.fury.config.CompatibleMode.COMPATIBLE)
-                    .withAsyncCompilation(true)
-                    .buildThreadSafeFury();
             Data d = new Data();
-            d.danmus = (List<DanmuRecord>) fury.deserialize(Files.readAllBytes(dir.resolve("import/danmu.ser")));
-            d.users = (List<UserRecord>) fury.deserialize(Files.readAllBytes(dir.resolve("import/user.ser")));
-            d.videos = (List<VideoRecord>) fury.deserialize(Files.readAllBytes(dir.resolve("import/video.ser")));
+            d.danmus = (List<DanmuRecord>) read(dir.resolve("import/danmu.ser"));
+            d.users = (List<UserRecord>) read(dir.resolve("import/user.ser"));
+            d.videos = (List<VideoRecord>) read(dir.resolve("import/video.ser"));
             for (UserRecord u : d.users) {
                 d.byMid.put(u.getMid(), u);
                 d.coinsLeft.put(u.getMid(), u.getCoin());
