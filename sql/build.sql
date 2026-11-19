@@ -167,7 +167,10 @@ create index video_coviews_other_bv_idx on video_coviews (other_bv);
 -- A new video gets its counters row; a deleted video's counters row goes by cascade and its
 -- co-view rows are deleted here, after locking them in key order (see video_coviews). The trigger
 -- fires after the deleted video's interactions have been deleted, so the co-view rows are locked
--- late in the deletion, and two video deletions overlap until then.
+-- late in the deletion, and two video deletions overlap until then. Both statements join the
+-- deleted videos to video_coviews, so each deleted video costs one probe of each of its two
+-- indexes; written as "bv in (...) or other_bv in (...)" they would scan the whole table, which
+-- every deletion of a user also paid (the cascade into videos fires this trigger with no rows).
 create function derived_videos() returns trigger
     language plpgsql as
 $$
@@ -179,11 +182,12 @@ begin
         return null;
     end if;
     perform from video_coviews c
-    where c.bv in (select bv from old_rows) or c.other_bv in (select bv from old_rows)
+    join old_rows o on c.bv = o.bv or c.other_bv = o.bv
     order by c.bv, c.other_bv
     for update of c;
     delete from video_coviews c
-    where c.bv in (select bv from old_rows) or c.other_bv in (select bv from old_rows);
+    using old_rows o
+    where c.bv = o.bv or c.other_bv = o.bv;
     return null;
 end
 $$;
