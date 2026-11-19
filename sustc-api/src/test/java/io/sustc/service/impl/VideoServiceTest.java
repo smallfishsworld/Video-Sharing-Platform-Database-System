@@ -1,5 +1,6 @@
 package io.sustc.service.impl;
 
+import static io.sustc.service.impl.Concurrency.concurrently;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
@@ -14,10 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -433,36 +430,5 @@ class VideoServiceTest extends IntegrationTest {
     private int coins(long mid) {
         Integer coin = jdbc.queryForObject("select coin from users where mid = ?", Integer.class, mid);
         return coin == null ? -1 : coin;
-    }
-
-    private static <T> List<T> concurrently(int copies, Callable<T> call) throws Exception {
-        List<Callable<T>> calls = new ArrayList<>();
-        for (int i = 0; i < copies; i++) {
-            calls.add(call);
-        }
-        return concurrently(calls);
-    }
-
-    /** Runs the calls on separate threads, released at the same moment. */
-    private static <T> List<T> concurrently(List<Callable<T>> calls) throws Exception {
-        ExecutorService pool = Executors.newFixedThreadPool(calls.size());
-        try {
-            CountDownLatch start = new CountDownLatch(1);
-            List<Future<T>> futures = new ArrayList<>();
-            for (Callable<T> call : calls) {
-                futures.add(pool.submit(() -> {
-                    start.await();
-                    return call.call();
-                }));
-            }
-            start.countDown();
-            List<T> results = new ArrayList<>();
-            for (Future<T> f : futures) {
-                results.add(f.get());
-            }
-            return results;
-        } finally {
-            pool.shutdownNow();
-        }
     }
 }
