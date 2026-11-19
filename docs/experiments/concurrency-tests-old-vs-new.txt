@@ -1,0 +1,62 @@
+# The tests that the round-2 fixes made pass, run on the code before the fixes (old) and on this version (new), 2026-11-19 12:36-12:37 UTC
+#
+# old: git archive 978fe40 (main code, sql/ and build files as in 978fe40), with this version's ConcurrencyTest, CollationIndependenceTest,
+#      Concurrency, Fixtures, IntegrationTest and VideoServiceTest copied in; its TransactionCompositionTest without
+#      aViolationInsideATransactionRollsBackOnlyThatWrite (that test exercises support/Writes, which 978fe40 does not have) and its
+#      DatabaseServiceTest without the assertion on the TRUNCATE audit record (978fe40's audit.sql has no TRUNCATE trigger)
+# new: the fresh clone of de4f32a from docs/experiments/ci-proof.txt
+# command, in each tree: nice -n 19 bash ./gradlew :sustc-api:test --tests io.sustc.service.impl.ConcurrencyTest \
+#     --tests io.sustc.service.impl.TransactionCompositionTest --tests io.sustc.service.impl.CollationIndependenceTest \
+#     --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache --continue
+# (host JDK 21, while holding /home/user/work/bench.lock; below: the JUnit XML of each run, one line per test, first line of each failure)
+
+## old: exit 1, tasks taken from the build cache: 0
+io.sustc.service.impl.CollationIndependenceTest: 5 tests, 4 failures, 0 errors, 0 skipped
+  FAILED  generalRecommendationsBreakTiesInByteOrder() -- java.lang.AssertionError: 
+  FAILED  similarVideosBreakTiesInByteOrder() -- java.lang.AssertionError: 
+  passed  theDatabaseReallySortsCaseFirstByLanguage()
+  FAILED  searchBreaksTiesInByteOrder() -- java.lang.AssertionError: 
+  FAILED  personalRecommendationsBreakFullTiesInByteOrder() -- java.lang.AssertionError: 
+io.sustc.service.impl.ConcurrencyTest: 11 tests, 10 failures, 0 errors, 0 skipped
+  FAILED  manyConcurrentTogglesLoseNoUpdate() -- org.opentest4j.AssertionFailedError: [net toggles of fan 2 on BVtest00001] 
+  passed  deletingAVideoAndOneOfItsLikersAtOnceBothSucceed()
+  FAILED  concurrentEditsOfOneVideoEachReportTheReviewStateTheyReplaced() -- java.lang.AssertionError: 
+  FAILED  concurrentFollowTogglesByOneUserAreAppliedOneAfterTheOther() -- org.opentest4j.AssertionFailedError: [results [false, true] against final state 1] 
+  FAILED  concurrentLikeTogglesByOneUserAreAppliedOneAfterTheOther() -- org.opentest4j.AssertionFailedError: [results [false, true] against final state 1] 
+  FAILED  concurrentViewsOfOneUserKeepTheCoviewCountsExact() -- org.opentest4j.AssertionFailedError: 
+  FAILED  concurrentCollectTogglesByOneUserAreAppliedOneAfterTheOther() -- org.opentest4j.AssertionFailedError: [results [true, false] against final state 1] 
+  FAILED  crossingAccountDeletionsBothSucceed() -- java.util.concurrent.ExecutionException: org.springframework.dao.DeadlockLoserDataAccessException: PreparedStatementCallback; SQL [delete from users
+  FAILED  concurrentDanmuLikeTogglesByOneUserAreAppliedOneAfterTheOther() -- org.opentest4j.AssertionFailedError: [results [false, true] against final state 1] 
+  FAILED  concurrentViewChangesKeepTheDerivedTablesExact() -- java.lang.AssertionError: [video_coviews rows that differ from a recomputation] 
+  FAILED  deletingTwoCoviewedVideosAtOnceBothSucceed() -- java.util.concurrent.ExecutionException: org.springframework.dao.DeadlockLoserDataAccessException: PreparedStatementCallback; SQL [delete from videos where bv = ? and (? or owner_mid = ?)]; ERROR: deadlock detected
+io.sustc.service.impl.TransactionCompositionTest: 3 tests, 1 failures, 0 errors, 0 skipped
+  passed  aDuplicateTitleInAPostLeavesTheTransactionUsable()
+  passed  aRepeatedDonationLeavesTheTransactionUsable()
+  FAILED  aDuplicateTitleInAnUpdateLeavesTheTransactionUsable() -- org.springframework.jdbc.UncategorizedSQLException: PreparedStatementCallback; uncategorized SQLException for SQL [select mid, identity from users where mid = ? and password = ?]; SQL state [25P02]; error code [0]; ERROR: current transaction is aborted, commands ignored until end of transaction bloc
+TOTAL 19 tests, 15 failures, 0 errors, 0 skipped
+
+## new: exit 0, tasks taken from the build cache: 0
+io.sustc.service.impl.CollationIndependenceTest: 5 tests, 0 failures, 0 errors, 0 skipped
+  passed  generalRecommendationsBreakTiesInByteOrder()
+  passed  similarVideosBreakTiesInByteOrder()
+  passed  theDatabaseReallySortsCaseFirstByLanguage()
+  passed  searchBreaksTiesInByteOrder()
+  passed  personalRecommendationsBreakFullTiesInByteOrder()
+io.sustc.service.impl.ConcurrencyTest: 11 tests, 0 failures, 0 errors, 0 skipped
+  passed  manyConcurrentTogglesLoseNoUpdate()
+  passed  deletingAVideoAndOneOfItsLikersAtOnceBothSucceed()
+  passed  concurrentEditsOfOneVideoEachReportTheReviewStateTheyReplaced()
+  passed  concurrentFollowTogglesByOneUserAreAppliedOneAfterTheOther()
+  passed  concurrentLikeTogglesByOneUserAreAppliedOneAfterTheOther()
+  passed  concurrentViewsOfOneUserKeepTheCoviewCountsExact()
+  passed  concurrentCollectTogglesByOneUserAreAppliedOneAfterTheOther()
+  passed  crossingAccountDeletionsBothSucceed()
+  passed  concurrentDanmuLikeTogglesByOneUserAreAppliedOneAfterTheOther()
+  passed  concurrentViewChangesKeepTheDerivedTablesExact()
+  passed  deletingTwoCoviewedVideosAtOnceBothSucceed()
+io.sustc.service.impl.TransactionCompositionTest: 4 tests, 0 failures, 0 errors, 0 skipped
+  passed  aDuplicateTitleInAPostLeavesTheTransactionUsable()
+  passed  aRepeatedDonationLeavesTheTransactionUsable()
+  passed  aViolationInsideATransactionRollsBackOnlyThatWrite()
+  passed  aDuplicateTitleInAnUpdateLeavesTheTransactionUsable()
+TOTAL 20 tests, 0 failures, 0 errors, 0 skipped

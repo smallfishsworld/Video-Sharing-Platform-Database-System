@@ -1,0 +1,38 @@
+# A fresh clone of the repository, checked like CI checks it out, 2026-11-19T11:55:26Z
+$ git clone --no-local /home/user/work/Video-Sharing-Platform-Database-System clone
+HEAD de4f32ae41c0cb2291a160ba23364102159cab0f, branch optimize
+$ git config core.fileMode
+true
+$ git ls-files -s gradlew "scripts/*.sh" "scripts/*.py" "docs/*.sh"   (every script in the repository)
+100755 8f9087a461255cb70f995076d5329d0eff2940a7 0	docs/experiments/fk-lock-wal.sh
+100755 23d15a9367071145e9c79bb4ddf879d1fbe78b5d 0	gradlew
+100755 06be6a0dcd606cff0f03279dda8e9cd5ecf8959b 0	scripts/bench_instrumented.py
+100755 0e43673629b09e60c46f8188b611e5bd29e4d100 0	scripts/bench_report.py
+100755 f2dda6a336ea0c0923563d35874b9cf20fe0bcb6 0	scripts/bench_series.sh
+100755 8f268c189199751d78157a43a5240e388ac538a6 0	scripts/bench_table.py
+100755 24704c03e4b1465bb3bcb957fdb1fdf8730e7ee3 0	scripts/benchmark.sh
+100755 5cd09d850999b6d160afa32ee02b01783c57094a 0	scripts/explain_plans.sh
+100755 c7193e225d8307b37d0ff4710bffb3e9c3f84a58 0	scripts/write_latency.sh
+100755 47b5d179af23e03f0480171f7f4956e2f0cb6ac4 0	scripts/writebench/run.sh
+100755 563310be84fc747c132cbee9e8b9bb1eb654c771 0	scripts/writebench/summarize.py
+100755 c4e16d85479143a65f4b3993755be9701b60a01a 0	scripts/writebench/tables.py
+$ stat -c "%A %n" $(git ls-files gradlew "scripts/*.sh" "scripts/*.py" "docs/*.sh")
+-rwxr-xr-x docs/experiments/fk-lock-wal.sh
+-rwxr-xr-x gradlew
+-rwxr-xr-x scripts/bench_instrumented.py
+-rwxr-xr-x scripts/bench_report.py
+-rwxr-xr-x scripts/bench_series.sh
+-rwxr-xr-x scripts/bench_table.py
+-rwxr-xr-x scripts/benchmark.sh
+-rwxr-xr-x scripts/explain_plans.sh
+-rwxr-xr-x scripts/write_latency.sh
+-rwxr-xr-x scripts/writebench/run.sh
+-rwxr-xr-x scripts/writebench/summarize.py
+-rwxr-xr-x scripts/writebench/tables.py
+$ ./gradlew --offline --version   (runs the wrapper through its executable bit)
+Gradle 8.14.3
+Launcher JVM:  21.0.13.0.3 (Ubuntu 21.0.13.0.3+1-1-24.04.1-Ubuntu)
+
+# Commits after de4f32a, up to c8d4c3a (the last before the one that adds this file), change only documentation, raw data and .gitignore:
+$ git diff --stat de4f32a c8d4c3a -- . ':!docs' ':!README.md' ':!README.zh-CN.md' ':!HANDOFF.md' ':!.gitignore'
+(no output)

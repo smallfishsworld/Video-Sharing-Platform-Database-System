@@ -1,0 +1,56 @@
+# ci.yml's build step on JDK 17 (eclipse-temurin:17-jdk container), in the fresh clone (de4f32a), 2026-11-19T12:35:36Z
+# command: docker run --rm --network host --cpus 2 --memory 3g -v /var/run/docker.sock:/var/run/docker.sock -v CLONE:/src -v /root/.gradle:/root/.gradle -w /src eclipse-temurin:17-jdk bash -c "java -version; nice -n 19 bash ./gradlew build --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache"
+# (run while holding /home/user/work/bench.lock; --no-build-cache: every task runs; "Picked up" JVM option lines removed)
+openjdk version "17.0.21" 2026-10-20
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :spotlessInternalRegisterDependencies
+> Task :sustc-runner:generateEffectiveLombokConfig
+> Task :sustc-api:generateEffectiveLombokConfig
+> Task :sustc-runner:processResources
+> Task :sustc-runner:generateTestEffectiveLombokConfig
+> Task :sustc-runner:processTestResources NO-SOURCE
+> Task :sustc-api:compileJava
+> Task :sustc-api:processResources NO-SOURCE
+> Task :sustc-api:classes
+> Task :sustc-api:bootJarMainClassName
+> Task :sustc-api:bootJar SKIPPED
+> Task :sustc-api:jar
+> Task :sustc-api:assemble
+> Task :sustc-api:generateTestEffectiveLombokConfig
+> Task :sustc-runner:compileJava
+> Task :sustc-runner:classes
+> Task :sustc-runner:bootJarMainClassName
+> Task :sustc-runner:bootJar
+> Task :sustc-runner:jar
+> Task :sustc-runner:assemble
+> Task :sustc-runner:compileTestJava NO-SOURCE
+> Task :sustc-runner:testClasses UP-TO-DATE
+> Task :sustc-runner:test NO-SOURCE
+> Task :sustc-runner:check UP-TO-DATE
+> Task :sustc-runner:build
+> Task :sustc-api:compileTestJava
+> Task :sustc-api:processTestResources
+> Task :sustc-api:testClasses
+> Task :sustc-api:test
+> Task :sustc-api:importerTestInBenchmarkZone
+> Task :sustc-api:spotlessJava
+> Task :sustc-api:spotlessJavaCheck
+> Task :sustc-api:spotlessCheck
+> Task :sustc-api:check
+> Task :sustc-api:build
+
+[Incubating] Problems report is available at: file:///src/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 58s
+19 actionable tasks: 19 executed
+exit 0
+tasks taken from the build cache: 0
+JUnit, task test: TOTAL 142 tests, 0 failures, 0 errors, 0 skipped
+JUnit, task importerTestInBenchmarkZone: TOTAL 9 tests, 0 failures, 0 errors, 0 skipped
