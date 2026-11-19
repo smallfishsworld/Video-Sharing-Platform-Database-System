@@ -263,6 +263,16 @@ create trigger derived_danmus_delete
 
 -- Viewer counters and co-view counts. A user who watches both a and b contributes one to the
 -- pairs (a, b) and (b, a); the deltas below are exactly the pairs that gain or lose such a user.
+--
+-- The pair deltas are computed from the user's other views, so two transactions that change views
+-- of the same user at the same time must not both compute them from a snapshot that misses the
+-- other's rows (each would miss the pairs between its view and the other's, and those pairs would
+-- be lost or decremented twice). Before computing pairs, the trigger therefore locks the users
+-- rows of the affected viewers, in mid order, as a statement of its own: FOR NO KEY UPDATE
+-- conflicts with itself but not with the KEY SHARE locks of foreign-key checks, and the pair
+-- statement that follows takes a new snapshot that includes every committed change of those
+-- users' views. The users rows are locked before any counter row, the same order as a coin
+-- donation (users, then video_stats).
 create function derived_viewers() returns trigger
     language plpgsql as
 $$
@@ -290,6 +300,11 @@ begin
     end if;
 
     if tg_op = 'INSERT' then
+        perform from users u
+        where u.mid in (select distinct mid from new_rows)
+        order by u.mid
+        for no key update of u;
+
         insert into video_stats as s (bv, viewers, view_time_sum)
         select bv, count(*), sum(view_time) from new_rows group by bv order by bv
         on conflict (bv) do update
@@ -321,6 +336,12 @@ begin
     if kept_bv is null then
         return null;
     end if;
+
+    -- A deleted user's row is already locked by the DELETE and is invisible here.
+    perform from users u
+    where u.mid in (select distinct o.mid from old_rows o where o.bv = any (kept_bv))
+    order by u.mid
+    for no key update of u;
 
     insert into video_stats as s (bv, viewers, view_time_sum)
     select bv, -n, -view_time from unnest(kept_bv, kept_n, kept_view_time) as d (bv, n, view_time)
