@@ -9,17 +9,19 @@ import io.sustc.service.impl.support.Page;
 import io.sustc.service.impl.support.SqlArrays;
 import io.sustc.service.impl.support.Strings;
 import io.sustc.service.impl.support.VideoVisibility;
+import io.sustc.service.impl.support.Writes;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -36,17 +38,24 @@ public class VideoServiceImpl implements VideoService {
     private static final String BV_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     /**
-     * The owner name is copied from the users table. A duplicate (owner, title) makes the insert
-     * return no row; a bv collision raises a unique violation and the caller retries.
+     * The owner name is copied from the users table. ON CONFLICT DO NOTHING covers both unique
+     * keys (bv and (owner, title)), so the statement never raises a unique violation. When no row
+     * is inserted, {@code refused} tells a taken title or a deleted owner (the request fails) from
+     * a bv collision (the caller retries with another bv).
      */
     private static final String INSERT_VIDEO =
             """
-            insert into videos (bv, title, owner_mid, owner_name, commit_time, public_time, duration, description)
-            select :bv, :title, u.mid, u.name, :now, :publicTime, :duration, :description
-            from users u
-            where u.mid = :me
-            on conflict (owner_mid, title) do nothing
-            returning bv
+            with added as (
+                insert into videos (bv, title, owner_mid, owner_name, commit_time, public_time, duration, description)
+                select :bv, :title, u.mid, u.name, :now, :publicTime, :duration, :description
+                from users u
+                where u.mid = :me
+                on conflict do nothing
+                returning bv
+            )
+            select (select bv from added) as bv,
+                   exists (select 1 from videos o where o.owner_mid = :me and o.title = :title)
+                       or not exists (select 1 from users u where u.mid = :me) as refused
             """;
 
     /** Foreign keys cascade to every interaction with the video, so one statement suffices. */
@@ -67,6 +76,7 @@ public class VideoServiceImpl implements VideoService {
               and v.owner_mid = :me
               and v.duration = :duration
               and (v.title, v.description, v.public_time) is distinct from (:title, :description, :publicTime)
+              and not exists (select 1 from videos o where o.owner_mid = :me and o.title = :title and o.bv <> v.bv)
             returning old.review_time is not null
             """;
 
@@ -172,13 +182,20 @@ public class VideoServiceImpl implements VideoService {
     private static final String TOGGLE_FAVORITE = TOGGLE.formatted(VideoVisibility.VISIBLE_TO_ME, "favorites");
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final DataSource dataSource;
     private final Authenticator authenticator;
     private final Clock clock;
 
     public VideoServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator, Clock clock) {
         this.jdbc = jdbc;
+        this.dataSource = Objects.requireNonNull(jdbc.getJdbcTemplate().getDataSource());
         this.authenticator = authenticator;
         this.clock = clock;
+    }
+
+    /** The result of {@link #INSERT_VIDEO}. */
+    private record Inserted(String bv, boolean refused) {
+        static final Inserted NOT_DONE = new Inserted(null, true);
     }
 
     @Override
@@ -197,13 +214,15 @@ public class VideoServiceImpl implements VideoService {
                 .addValue("description", req.getDescription(), Types.VARCHAR);
         for (int attempt = 1; attempt <= MAX_BV_ATTEMPTS; attempt++) {
             params.addValue("bv", newBv());
-            try {
-                return jdbc.queryForList(INSERT_VIDEO, params, String.class).stream()
-                        .findFirst()
-                        .orElse(null);
-            } catch (DuplicateKeyException e) {
-                log.debug("Generated bv collided with an existing video (attempt {})", attempt);
+            Inserted inserted = Writes.run(
+                    dataSource,
+                    () -> jdbc.queryForObject(
+                            INSERT_VIDEO, params, (rs, i) -> new Inserted(rs.getString(1), rs.getBoolean(2))),
+                    Inserted.NOT_DONE);
+            if (inserted.bv() != null || inserted.refused()) {
+                return inserted.bv();
             }
+            log.debug("Generated bv collided with an existing video (attempt {})", attempt);
         }
         throw new IllegalStateException("Could not generate an unused bv in " + MAX_BV_ATTEMPTS + " attempts");
     }
@@ -214,7 +233,11 @@ public class VideoServiceImpl implements VideoService {
         if (me.isEmpty() || bv == null) {
             return false;
         }
-        return jdbc.update(DELETE_VIDEO, VideoVisibility.bind(me.get(), now()).addValue("bv", bv)) == 1;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("bv", bv)
+                .addValue("me", me.get().mid())
+                .addValue("superuser", me.get().superuser());
+        return Writes.run(dataSource, () -> jdbc.update(DELETE_VIDEO, params) == 1, false);
     }
 
     @Override
@@ -231,13 +254,14 @@ public class VideoServiceImpl implements VideoService {
                 .addValue("description", req.getDescription(), Types.VARCHAR)
                 .addValue("publicTime", req.getPublicTime())
                 .addValue("duration", (double) req.getDuration());
-        try {
-            List<Boolean> wasReviewed = jdbc.queryForList(UPDATE_VIDEO, params, Boolean.class);
-            return !wasReviewed.isEmpty() && wasReviewed.get(0);
-        } catch (DuplicateKeyException e) {
-            // The owner already has another video with the new title.
-            return false;
-        }
+        // A unique violation is left only for a race with a concurrent write of the same title.
+        return Writes.run(
+                dataSource,
+                () -> {
+                    List<Boolean> wasReviewed = jdbc.queryForList(UPDATE_VIDEO, params, Boolean.class);
+                    return !wasReviewed.isEmpty() && wasReviewed.get(0);
+                },
+                false);
     }
 
     @Override
@@ -282,7 +306,7 @@ public class VideoServiceImpl implements VideoService {
                 .addValue("bv", bv)
                 .addValue("me", me.get().mid())
                 .addValue("now", now());
-        return jdbc.update(REVIEW_VIDEO, params) == 1;
+        return Writes.run(dataSource, () -> jdbc.update(REVIEW_VIDEO, params) == 1, false);
     }
 
     @Override
@@ -291,14 +315,10 @@ public class VideoServiceImpl implements VideoService {
         if (me.isEmpty() || bv == null) {
             return false;
         }
-        try {
-            return jdbc.update(
-                            DONATE_COIN, VideoVisibility.bind(me.get(), now()).addValue("bv", bv))
-                    == 1;
-        } catch (DuplicateKeyException e) {
-            // A concurrent donation by the same user to the same video won; nothing was charged.
-            return false;
-        }
+        MapSqlParameterSource params = VideoVisibility.bind(me.get(), now()).addValue("bv", bv);
+        // A unique violation means that a concurrent donation by the same user to the same video
+        // won; the statement rolled back, so nothing was charged.
+        return Writes.run(dataSource, () -> jdbc.update(DONATE_COIN, params) == 1, false);
     }
 
     @Override

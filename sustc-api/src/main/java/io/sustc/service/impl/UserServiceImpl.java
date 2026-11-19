@@ -3,15 +3,19 @@ package io.sustc.service.impl;
 import io.sustc.dto.AuthInfo;
 import io.sustc.dto.RegisterUserReq;
 import io.sustc.dto.UserInfoResp;
+import io.sustc.dto.UserRecord;
 import io.sustc.service.UserService;
 import io.sustc.service.impl.auth.Authenticator;
 import io.sustc.service.impl.auth.CurrentUser;
 import io.sustc.service.impl.support.SqlArrays;
 import io.sustc.service.impl.support.Strings;
+import io.sustc.service.impl.support.Writes;
 import java.sql.Types;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.sql.DataSource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -27,13 +31,14 @@ public class UserServiceImpl implements UserService {
     private static final int[] DAYS_IN_MONTH = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
     /**
-     * New users start at level 0 with no coins. Conflicts on the unique qq/wechat columns make the
-     * insert return no row, which closes the race between "check for duplicates" and "insert".
+     * New users get the column defaults: level 0, no coins, identity USER. Conflicts on the unique
+     * qq/wechat columns make the insert return no row, which closes the race between "check for
+     * duplicates" and "insert".
      */
     private static final String INSERT_USER =
             """
-            insert into users (name, sex, birthday, level, coin, sign, identity, password, qq, wechat)
-            values (:name, :sex, :birthday, 0, 0, :sign, 'USER', :password, :qq, :wechat)
+            insert into users (name, sex, birthday, sign, password, qq, wechat)
+            values (:name, :sex, :birthday, :sign, :password, :qq, :wechat)
             on conflict do nothing
             returning mid
             """;
@@ -47,7 +52,7 @@ public class UserServiceImpl implements UserService {
             """
             delete from users
             where mid = :target
-              and (mid = :me or (:superuser and identity = 'USER'))
+              and (mid = :me or (:superuser and identity = :regularIdentity))
             """;
 
     /** Toggles the relation and reports whether the user follows the followee afterwards. */
@@ -87,10 +92,12 @@ public class UserServiceImpl implements UserService {
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final DataSource dataSource;
     private final Authenticator authenticator;
 
     public UserServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator) {
         this.jdbc = jdbc;
+        this.dataSource = Objects.requireNonNull(jdbc.getJdbcTemplate().getDataSource());
         this.authenticator = authenticator;
     }
 
@@ -111,9 +118,12 @@ public class UserServiceImpl implements UserService {
                 .addValue("password", req.getPassword())
                 .addValue("qq", Strings.emptyToNull(req.getQq()), Types.VARCHAR)
                 .addValue("wechat", Strings.emptyToNull(req.getWechat()), Types.VARCHAR);
-        return jdbc.queryForList(INSERT_USER, params, Long.class).stream()
-                .findFirst()
-                .orElse(INVALID_MID);
+        return Writes.run(
+                dataSource,
+                () -> jdbc.queryForList(INSERT_USER, params, Long.class).stream()
+                        .findFirst()
+                        .orElse(INVALID_MID),
+                INVALID_MID);
     }
 
     @Override
@@ -125,8 +135,9 @@ public class UserServiceImpl implements UserService {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("target", mid)
                 .addValue("me", me.get().mid())
-                .addValue("superuser", me.get().superuser());
-        return jdbc.update(DELETE_USER, params) == 1;
+                .addValue("superuser", me.get().superuser())
+                .addValue("regularIdentity", UserRecord.Identity.USER.name());
+        return Writes.run(dataSource, () -> jdbc.update(DELETE_USER, params) == 1, false);
     }
 
     @Override

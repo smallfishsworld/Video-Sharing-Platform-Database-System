@@ -113,8 +113,12 @@ create function count_occurrences(haystack text, needle text) returns integer
 -- Two tables cache aggregates that the read paths would otherwise recompute from hundreds of
 -- thousands of rows on every call. Statement-level triggers (all named derived_*) keep them exact
 -- inside the writing transaction: they read the affected rows from transition tables, so a
--- statement costs one set-based update no matter how many rows it touches, and they update the
--- rows in key order, so two triggers that change the same counters lock them in the same order.
+-- statement costs one set-based update no matter how many rows it touches. Each trigger updates
+-- its rows in key order, so two firings of one trigger lock the counters they share in the same
+-- order. That order holds within one firing only: a DELETE that cascades fires one trigger per
+-- cascaded table, so two concurrent cascading deletes (two accounts, or a video and one of its
+-- likers) can still lock in crossing orders and deadlock. The services retry a write that loses a
+-- deadlock (support/Writes.java).
 --
 -- TRUNCATE fires no row triggers: truncate the derived tables together with their sources (the
 -- service's truncate() truncates every table). BulkImporter drops the derived_* triggers while it
@@ -161,9 +165,9 @@ create trigger derived_videos_insert
 
 -- One counter per interaction table; tg_table_name selects it. Every change is a single upsert of
 -- signed deltas sorted by bv: ON CONFLICT locks the counter rows in that order, so two upserts
--- that touch the same videos take their row locks in the same order. Rows of videos that no
--- longer exist (a video being deleted cascades to its interactions) are skipped; their counters
--- go with them.
+-- that touch the same videos take their row locks in the same order (see the deadlock note
+-- above for cascades). Rows of videos that no longer exist (a video being deleted cascades to its
+-- interactions) are skipped; their counters go with them.
 create function derived_interactions() returns trigger
     language plpgsql as
 $$

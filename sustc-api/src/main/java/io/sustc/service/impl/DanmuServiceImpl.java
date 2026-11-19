@@ -7,10 +7,13 @@ import io.sustc.service.impl.auth.CurrentUser;
 import io.sustc.service.impl.support.SqlArrays;
 import io.sustc.service.impl.support.Strings;
 import io.sustc.service.impl.support.VideoVisibility;
+import io.sustc.service.impl.support.Writes;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import javax.sql.DataSource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -91,11 +94,13 @@ public class DanmuServiceImpl implements DanmuService {
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final DataSource dataSource;
     private final Authenticator authenticator;
     private final Clock clock;
 
     public DanmuServiceImpl(NamedParameterJdbcTemplate jdbc, Authenticator authenticator, Clock clock) {
         this.jdbc = jdbc;
+        this.dataSource = Objects.requireNonNull(jdbc.getJdbcTemplate().getDataSource());
         this.authenticator = authenticator;
         this.clock = clock;
     }
@@ -112,7 +117,12 @@ public class DanmuServiceImpl implements DanmuService {
                 .addValue("time", (double) time)
                 .addValue("content", content)
                 .addValue("now", now());
-        return jdbc.queryForList(SEND, params, Long.class).stream().findFirst().orElse(INVALID_ID);
+        return Writes.run(
+                dataSource,
+                () -> jdbc.queryForList(SEND, params, Long.class).stream()
+                        .findFirst()
+                        .orElse(INVALID_ID),
+                INVALID_ID);
     }
 
     @Override
