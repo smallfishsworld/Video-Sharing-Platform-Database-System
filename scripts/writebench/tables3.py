@@ -72,6 +72,10 @@ P("Original = the original implementation; round 2 = this project at a330c0c (ja
   "the jar of this round's benchmark runs. Every run holds `/home/user/work/bench.lock`; several runs share one "
   "hold (at most 15 minutes), with the original and this version alternating inside it. Steady runs use `--settle` "
   "(a `CHECKPOINT` after the import); deleteVideoWithViews deletes 8 imported videos (about 20,000 views each).\n")
+if os.path.isdir(os.path.join(D, "1717da9")):
+    P("The runs of the first version of the round-3 fix (1717da9, whose co-view trigger scanned the whole co-view "
+      "table on every deletion) are in `1717da9/`, summarized by `python3 scripts/writebench/tables3.py "
+      "docs/benchmark/round3/writebench/1717da9`.\n")
 P("Boots of the runs (`uptime -s`): " + ", ".join(sorted({r["options"].get("boot", "") for r in every})) + ".")
 
 # Deletions on 8 clients ---------------------------------------------------------------------------
@@ -85,8 +89,7 @@ for op, pats in (("deleteAccount", (("original", "delacct-orig-c8-r*"), ("round 
                                      ("this version", "delacct-new-c8-r*"))),
                  ("deleteVideoWithViews", (("original", "steady-orig-c8-r*"), ("round 2", "delvid-r2-c8-r*"),
                                             ("this version", "steady-new-c8-r*"))),
-                 ("deleteVideo", (("original", "steady-orig-c8-r*"), ("round 2", "delvid-r2-c8-r*"),
-                                  ("this version", "steady-new-c8-r*")))):
+                 ("deleteVideo", (("original", "steady-orig-c8-r*"), ("this version", "steady-new-c8-r*")))):
     for label, pat in pats:
         xs = op_results(runs(pat), op)
         if not xs:
@@ -94,7 +97,9 @@ for op, pats in (("deleteAccount", (("original", "delacct-orig-c8-r*"), ("round 
         P(f"| {op} | {label} | {len(xs)} | {cell([x['p50_ms'] for x in xs])} | {cell([x['p95_ms'] for x in xs])} | "
           f"{cell([x['p99_ms'] for x in xs if 'p99_ms' in x])} | {cell([x['max_ms'] for x in xs], 0)} | "
           f"{cell([x['throughput_per_s'] for x in xs], 1)} | {failures(xs)} | {deadlocks(pat)} |")
-P("\nRound 2's own runs (docs/benchmark/round2/writebench, 3 and 5 runs, no p99 recorded) are in that summary.")
+P("\nThe round-2 runs here use the jar of a330c0c (42004a16) and its SQL; `delvid-r2-c8-r1` runs only the two "
+  "video deletions, so its deleteVideo calls find no posted video to delete and are left out. Round 2's own runs "
+  "(docs/benchmark/round2/writebench, 3 and 5 runs, no p99 recorded) are in that summary.")
 
 # Steady state ---------------------------------------------------------------------------------------
 for clients in (8, 1):
