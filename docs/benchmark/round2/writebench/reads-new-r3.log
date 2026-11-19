@@ -1,5 +1,5 @@
 Picked up JAVA_TOOL_OPTIONS: [the sandbox's proxy and trust-store settings, removed]
-Picked up _JAVA_OPTIONS: -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_base64_encodeBlock,_base64_decodeBlock
+Picked up _JAVA_OPTIONS: [the sandbox's JVM options, removed; see docs/benchmark/README.md]
 18:50:15.181 INFO  i.s.s.i.c.ClockConfig - Service clock starts at 2023-12-30T04:00:00Z (offset PT-25326H-50M-15.180549484S from the system clock)
 18:50:15.289 INFO  i.s.s.i.i.BulkImporter - Import phase 'drop schema objects' took 23 ms
 18:50:17.475 INFO  i.s.s.i.i.BulkImporter - Import phase 'load' took 2184 ms
