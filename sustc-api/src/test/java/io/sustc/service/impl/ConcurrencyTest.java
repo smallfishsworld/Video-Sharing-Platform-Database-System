@@ -20,6 +20,8 @@ import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Concurrent calls that used to race. Most tests hold row locks in a {@link Gate} so that the
@@ -39,6 +41,9 @@ class ConcurrencyTest extends IntegrationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     // Toggles ------------------------------------------------------------------------------------
 
@@ -307,6 +312,85 @@ class ConcurrencyTest extends IntegrationTest {
         assertThat(results).containsExactly(true, true);
         assertThat(count("select count(*) from users where mid in (?, ?)", a, b))
                 .isZero();
+        DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
+     * The same crossing deletions, each inside a caller's transaction, where a deadlock is not
+     * retried (it aborts the caller's transaction): both must succeed, so the deletions must never
+     * deadlock in the first place. The deletion lock makes b wait for a's whole transaction.
+     */
+    @Test
+    void crossingAccountDeletionsInCallerTransactionsNeverDeadlock() throws Exception {
+        long owner = fx.user("owner");
+        long a = fx.user("a");
+        long b = fx.user("b");
+        String v1 = fx.video(owner, "v1");
+        String v2 = fx.video(owner, "v2");
+        String v3 = fx.video(owner, "v3");
+        String first = cascadesFirst("videolikes", "coins");
+        String second = first.equals("videolikes") ? "coins" : "videolikes";
+        interact(first, v1, a);
+        interact(second, v2, a);
+        interact(second, v3, a);
+        interact(first, v3, b);
+        interact(second, v1, b);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        List<Boolean> results;
+        try (Gate gate = new Gate(dataSource, jdbc, "select 1 from video_stats where bv = ? for update", v2)) {
+            results = inOrderBehind(
+                    gate,
+                    List.of(
+                            () -> tx.execute(status -> users.deleteAccount(fx.auth(a), a)),
+                            () -> tx.execute(status -> users.deleteAccount(fx.auth(b), b))));
+        }
+
+        assertThat(results).containsExactly(true, true);
+        assertThat(count("select count(*) from users where mid in (?, ?)", a, b))
+                .isZero();
+        DerivedTables.assertConsistent(jdbc);
+    }
+
+    /**
+     * Two co-viewed videos deleted at once, each inside a caller's transaction. A test trigger
+     * makes every co-view row deletion take 200 ms, so both deletions are inside their co-view
+     * deletions at the same time. Deleted by two cascades, one per direction, the rows between the
+     * two videos were taken in crossing orders and the deletions deadlocked on every run; deleted
+     * in key order, the second deletion waits for the first.
+     */
+    @Test
+    void coviewedVideoDeletionsInCallerTransactionsNeverDeadlock() throws Exception {
+        long owner = fx.user("owner");
+        List<String> bvs = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            bvs.add(fx.video(owner, "video " + i));
+        }
+        for (int u = 0; u < 3; u++) {
+            long viewer = fx.user("viewer " + u);
+            for (String bv : bvs) {
+                fx.watch(bv, viewer, 1);
+            }
+        }
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        jdbc.execute(
+                """
+                create function test_slow_delete() returns trigger language plpgsql as
+                $$ begin perform pg_sleep(0.2); return old; end $$
+                """);
+        jdbc.execute("create trigger test_slow_delete before delete on video_coviews"
+                + " for each row execute function test_slow_delete()");
+        List<Boolean> results;
+        try {
+            results = concurrently(List.of(
+                    () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(0))),
+                    () -> tx.execute(status -> videos.deleteVideo(fx.auth(owner), bvs.get(1)))));
+        } finally {
+            jdbc.execute("drop trigger test_slow_delete on video_coviews");
+            jdbc.execute("drop function test_slow_delete()");
+        }
+
+        assertThat(results).containsExactly(true, true);
         DerivedTables.assertConsistent(jdbc);
     }
 
