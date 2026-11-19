@@ -56,10 +56,10 @@ flowchart LR
     tables -. "audit triggers" .-> audit
 ```
 
-- **Services** are Spring beans with constructor injection (`NamedParameterJdbcTemplate`, `Authenticator`, `Clock`), so a REST layer can reuse them as they are. The `Clock` makes "now" testable; the benchmark pins it to the time its data was generated.
-- **Every write is one SQL statement.** Toggles, coin donations, reviews and cascading deletes are single statements (data-modifying CTEs, `ON CONFLICT`, foreign-key cascades), so each one is atomic and race-free without an explicit transaction, and costs one round trip.
+- **Services** are Spring beans with constructor injection (`NamedParameterJdbcTemplate`, `Authenticator`, `Clock`); a REST layer can reuse them under the conditions in [HANDOFF.md](HANDOFF.md#adding-a-rest-layer). The `Clock` makes "now" testable; the benchmark pins it to the time its data was generated.
+- **Every write is one call.** Coin donations, reviews, edits and cascading deletes are single statements (data-modifying CTEs, `ON CONFLICT`, foreign-key cascades); a toggle is an advisory lock on the acting user plus the toggle statement, sent in one round trip. Each call is atomic without an explicit transaction. Concurrent calls are covered by tests: toggles of one user are serialized, so none is lost; an edit locks its row before it reports the review state it replaced; co-view counts lock the viewer; and a call that loses a deadlock between two cascading deletes is retried (up to 3 attempts).
 - **Derived data lives in the database.** Per-video counters (`video_stats`) and co-viewing counts (`video_coviews`) are kept up to date by statement-level triggers, so recommendations read a few dozen rows instead of aggregating 2.2 M interaction rows per call.
-- **The importer** bulk-loads with `COPY`, rebuilds indexes and constraints afterwards from the catalog, and leaves an empty database with the complete schema if anything fails.
+- **The importer** bulk-loads with `COPY`, rebuilds indexes and constraints afterwards from the catalog, and if anything fails leaves the imported tables empty with the complete schema (the `users` audit log keeps the attempt).
 
 ## Database design
 
@@ -223,9 +223,9 @@ So, at steady state a write is not slower than the original one: the triggers ad
 The original implementation failed 4 benchmark cases and had several problems the benchmark does not check. This version fixes them, each covered by a test:
 
 - `follow` returns the state after the call; deleting an account removes the user's videos and everything on them, as well as everything the user did; deleting a video also removes its danmu likes.
-- Similar videos break ties by `bv`; search relevance counts non-overlapping, case-insensitive occurrences (the Javadoc examples are tests) and breaks ties by views, then `bv`.
-- Unreviewed videos and videos before their public time are visible only to their owner and superusers, in search and for every interaction.
-- Coin donation is one statement: the coin is charged only if the donation row is inserted (tested with 8 concurrent threads); every other multi-step write is a single statement too.
+- Similar videos break ties by `bv`; search relevance counts non-overlapping, case-insensitive occurrences (the Javadoc examples are tests; case folding uses ICU, so it also works for non-ASCII text on the benchmark database's C locale) and breaks ties by views, then `bv`. The `bv` tie-breaks compare bytes (`collate "C"`), whatever the database's default collation.
+- Unreviewed videos and videos before their public time are visible only to their owner and superusers, in search and in like, coin and collect; danmus can be sent to or displayed on published videos only, and `likeDanmu` follows its Javadoc (the danmu exists and the user watched its video).
+- Coin donation is one statement: the coin is charged only if the donation row is inserted (tested with 8 concurrent threads). Toggles, edits and co-view counts are safe under concurrency, and deadlocks between cascading deletes are retried (see [Architecture](#architecture)); `ConcurrencyTest` covers each case and fails on the code before these fixes.
 - Identity sequences continue after the imported ids; no code path leaks a pooled connection (checked after every integration test).
 
 Interpretations of the specification where it is ambiguous are listed in [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md#interpretations-of-the-specification).
