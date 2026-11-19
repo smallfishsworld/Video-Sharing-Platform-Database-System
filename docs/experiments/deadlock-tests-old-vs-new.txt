@@ -46,3 +46,10 @@ tests=13 failures=0 errors=0 skipped=0 time=8.909s
 test: tests=144 failures=0 errors=0 skipped=0
 importerTestInBenchmarkZone: tests=9 failures=0 errors=0 skipped=0
   of which ConcurrencyTest: tests=13 failures=0 errors=0
+
+== gradle check at ac3a0dc (co-view deletion through the indexes), one bench-lock hold 14:33:26-14:34:00 UTC:
+#   nice -n 19 bash ./gradlew --no-daemon --stacktrace --offline --max-workers=2 --no-build-cache check
+# BUILD SUCCESSFUL in 33s (Spotless check and every test task); run before the commit, on the same tree
+test: tests=144 failures=0 errors=0 skipped=0
+importerTestInBenchmarkZone: tests=9 failures=0 errors=0 skipped=0
+  of which ConcurrencyTest: tests=13 failures=0 errors=0
