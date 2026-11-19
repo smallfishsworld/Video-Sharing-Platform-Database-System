@@ -6,6 +6,7 @@ import io.sustc.service.impl.auth.Authenticator;
 import io.sustc.service.impl.auth.CurrentUser;
 import io.sustc.service.impl.support.SqlArrays;
 import io.sustc.service.impl.support.Strings;
+import io.sustc.service.impl.support.Timestamps;
 import io.sustc.service.impl.support.VideoVisibility;
 import io.sustc.service.impl.support.Writes;
 import java.sql.Timestamp;
@@ -158,6 +159,6 @@ public class DanmuServiceImpl implements DanmuService {
     }
 
     private Timestamp now() {
-        return Timestamp.from(clock.instant());
+        return Timestamps.now(clock);
     }
 }

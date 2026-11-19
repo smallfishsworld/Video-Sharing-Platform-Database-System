@@ -8,6 +8,7 @@ import io.sustc.service.impl.auth.CurrentUser;
 import io.sustc.service.impl.support.Page;
 import io.sustc.service.impl.support.SqlArrays;
 import io.sustc.service.impl.support.Strings;
+import io.sustc.service.impl.support.Timestamps;
 import io.sustc.service.impl.support.VideoVisibility;
 import io.sustc.service.impl.support.Writes;
 import java.sql.Timestamp;
@@ -32,6 +33,9 @@ public class VideoServiceImpl implements VideoService {
 
     static final float MIN_DURATION_SECONDS = 10;
     static final int HOTSPOT_CHUNK_SECONDS = 10;
+    /** What getAverageViewRate returns for a video that does not exist or has no viewers. */
+    static final double NO_VIEW_RATE = -1.0;
+
     private static final int MAX_BV_ATTEMPTS = 5;
     private static final String BV_PREFIX = "BV1";
     private static final int BV_RANDOM_LENGTH = 9;
@@ -298,7 +302,7 @@ public class VideoServiceImpl implements VideoService {
     public double getAverageViewRate(String bv) {
         return jdbc.queryForList(AVERAGE_VIEW_RATE, new MapSqlParameterSource("bv", bv), Double.class).stream()
                 .findFirst()
-                .orElse(-1.0);
+                .orElse(NO_VIEW_RATE);
     }
 
     @Override
@@ -376,6 +380,6 @@ public class VideoServiceImpl implements VideoService {
     }
 
     private Timestamp now() {
-        return Timestamp.from(clock.instant());
+        return Timestamps.now(clock);
     }
 }
