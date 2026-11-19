@@ -13,21 +13,31 @@ The base is `2e811bd`, the original course implementation with the build fixed. 
 | `bf9936d` | 103 JUnit 5 + Testcontainers tests for every service and the importer; a fix for foreign keys left `NOT VALID` after a failed import |
 | `10339a3` | GitHub Actions CI (JDK 17 and 21); the benchmark, EXPLAIN and write-latency scripts; recorded plans and experiments |
 | `13b980d` | the two READMEs, the engineering notes, this file, the raw benchmark reports in `docs/benchmark`; `sql/` declared as a test input |
+| `978fe40` | executable bits on `gradlew` and the scripts; CI runs the wrapper through `bash` |
+| `94d8ed7` … `050cf28` | concurrency: deadlock retries and savepoints inside a caller's transaction, a per-user lock for toggles, the review state an edit replaced, co-view maintenance one transaction per user; `ConcurrencyTest` |
+| `89e39e2` … `cad2e6e` | ICU case folding and byte-order tie-breaks, no credentials in the audit log, exact re-creation of schema objects by the importer, tests for documented behaviours |
+| `1f1225b` … the last commit | benchmark tooling (WriteBench, the instrumented and interleaved series, the WAL and EXPLAIN experiments), round-1 raw files moved to `docs/benchmark/round1`, documentation corrected against the round-2 measurements |
+
+The commits up to `13b980d` mix concerns (for example `66edb47`); they were not rewritten, because the round-1 raw files and the review refer to them by hash. The fix round from `978fe40` on has one concern per commit.
 
 Where it stands:
-- **Benchmark.** All 5,622 cases pass in all three final runs. The 22 query and update steps take 3,923 ms against 15,196 ms for the original (medians of 3 runs), and the import takes 8,259 ms against 57,674 ms.
-- **Tests.** `./gradlew build` passes on JDK 21, and on JDK 17 in a Docker container.
+- **Benchmark.** All 5,622 cases pass in every run. In the interleaved round-2 runs (medians of 3, [docs/benchmark/round2/plain](docs/benchmark/round2/plain)) the 21 timed steps take 4,433 ms against 21,903 ms for the original: read steps 1,080 against 19,057 ms, write steps 3,353 against 2,846 ms. The import takes 8,843 ms against 91,728 ms.
+- **Tests.** 142 tests; `bash ./gradlew build` passes in a fresh clone on JDK 21 and on JDK 17 in a container ([docs/experiments/ci-proof.txt](docs/experiments/ci-proof.txt) and the two logs next to it).
+- **Known problem.** Concurrent cascading deletes deadlock: on 8 clients 79–83 of 100 account deletions and 4–6 of 8 deletions of imported videos fail after 3 attempts (README, known limitations; next step 2 below).
 - **Not done.** Nothing has been pushed, so the CI workflow has never run on GitHub.
 
 ## Commands
 
 ```bash
-./gradlew build                      # compile, Spotless check, 103 tests (needs Docker)
+./gradlew build                      # compile, Spotless check, all tests (needs Docker)
 ./gradlew :sustc-runner:bootJar      # run/sustc-runner.jar
 scripts/benchmark.sh --label NAME    # fresh schema + one benchmark run -> docs/benchmark/NAME.json
 python3 scripts/bench_table.py --write README.md README.zh-CN.md   # rebuild the README tables
 scripts/explain_plans.sh --original-from SCHEMA                     # regenerate docs/explain
 scripts/write_latency.sh             # regenerate docs/experiments/write-latency.txt
+scripts/bench_series.sh --variant plain --prefix NAME   # interleaved B/O runs, docs/benchmark/round2/plain
+scripts/bench_report.py docs/benchmark/round2/plain     # per-run sums, WAL per write step, checkpoints
+scripts/writebench/run.sh --jar JAR --sql "FILES" --out OUT -- --mode steady|count|stress|reads
 ```
 
 **Requirements.**
@@ -38,7 +48,7 @@ scripts/write_latency.sh             # regenerate docs/experiments/write-latency
 
 **Test data.** The course's `.ser` files are not in the repository. Put them in `sustc-runner/data/import/` and `sustc-runner/data/test/`.
 
-**How the recorded runs were made.** The official runs (`docs/benchmark/round1/baseline-*.json`, `round1/optimized-*.json`) were made with a harness script outside the repository, under `flock`. `scripts/benchmark.sh` does the same steps with the same JVM flags. `docs/benchmark/round1/dev/script-check.json` is one run of it on the final code: 5,622 passed, and 3,899 ms for steps 2–23.
+**How the recorded runs were made.** The round-2 runs (`docs/benchmark/round2/{plain,settle,analyze}`) were made by `scripts/bench_series.sh`, which runs the harness script outside the repository (`/home/user/work/bench6/run_bench.sh`, under `flock`) through `scripts/bench_instrumented.py`, alternating the original (B, `/home/user/work/vs-baseline`) and this version (O). The WriteBench runs are in `docs/benchmark/round2/writebench`, with the exact options in each file. The round-1 runs are in `docs/benchmark/round1`. `scripts/benchmark.sh` does the same steps as the harness with the same JVM flags; `docs/benchmark/round1/dev/script-check.json` is one run of it.
 
 ## Where things are
 
@@ -47,14 +57,14 @@ scripts/write_latency.sh             # regenerate docs/experiments/write-latency
 | `sql/build.sql` | tables, indexes, `count_occurrences`, derived tables and their triggers |
 | `sql/audit.sql`, `sql/usercontrol.sql` | audit log on `users`; three roles and their grants |
 | `sustc-api/.../service/impl/*ServiceImpl.java` | the services; each SQL statement is a commented `static final` text block |
-| `sustc-api/.../service/impl/auth/` | `Authenticator` (one query per call) and `CurrentUser` |
+| `sustc-api/.../service/impl/auth/` | `Authenticator` (one query in the common case, a second for `qq`/`wechat`) and `CurrentUser` |
 | `sustc-api/.../service/impl/support/` | `VideoVisibility` (the one visibility predicate), `Page`, `SqlArrays`, `Strings` |
 | `sustc-api/.../service/impl/importer/` | `BulkImporter` and its helpers (catalog-driven detach/restore, COPY writer, derived data) |
 | `sustc-api/.../service/impl/config/ClockConfig.java` | the injectable `Clock`; `-Dsustc.clock.start=…` pins it |
 | `sustc-api/src/test/` | `IntegrationTest` base class (singleton PostgreSQL 16 container, leak check), `Fixtures`, `DerivedTables.assertConsistent`, one test class per service |
-| `docs/benchmark/` | raw benchmark reports (`dev/`: single development runs) |
+| `docs/benchmark/` | raw benchmark reports: `round2/` (interleaved runs, WriteBench), `round1/` (earlier runs; `dev/`: single development runs) |
 | `docs/explain/`, `docs/experiments/` | EXPLAIN outputs and the SQL that produced them; pgbench and timing experiments |
-| `scripts/` | benchmark, table, EXPLAIN and write-latency scripts (`scripts/pgbench/`: the pgbench workloads) |
+| `scripts/` | benchmark, series, report, table, EXPLAIN and write-latency scripts (`scripts/pgbench/`: the pgbench workloads; `scripts/writebench/`: WriteBench) |
 | `sustc-runner/`, `io.sustc.service` interfaces, `io.sustc.dto` | the course framework: unchanged, and must stay so |
 
 ## Adding a REST layer
@@ -76,8 +86,11 @@ The services can be called from controllers, with these conditions:
 
 These are the follow-ups, in the order I would take them. The measurements behind them are in the notes.
 
-1. **Profile the two slower reads.** Danmu display and hotspots: their SQL takes about 0.13 ms per call, but the benchmark steps are slower than the original's.
-2. **Exit early on empty transition tables.** A toggle fires both its insert and its delete trigger, and one of the two has nothing to do.
-3. **Fold authentication into the write statements.** That saves one round trip per call.
-4. **Checkpoint after a bulk import.** Writes right after an import pay for writeback and full-page images. `CHECKPOINT` needs `pg_checkpoint` membership, which the `sustc` role lacks.
-5. **Run CI once pushed.** Compare its test times with the local ones.
+1. **Run CI once pushed.** Compare its test times with the local ones.
+2. **Serialize the cascading deletes.** On 8 clients, 4–6 of 8 concurrent deletions of imported videos and 79–83 of 100 account deletions fail with `deadlock detected` after 3 attempts ([WriteBench summary](docs/benchmark/round2/writebench/summary.md)). Take a transaction-scoped advisory lock in a key space of its own (`pg_advisory_xact_lock(1, 0)`) as the first statement of `deleteVideo` and `deleteAccount` when the row has derived data, or lock the affected `video_stats` and `video_coviews` rows in one global order first; then repeat the 8-client runs (`--clients 8 --only deleteAccount`, `--only deleteVideoWithViews`) and the benchmark series.
+3. **Fold authentication into the write statements.** That saves one round trip per call (every write except register takes two round trips today, the authentication query and the write; WriteBench count mode).
+4. **Purge old audit logs.** Logs written before `005b628` contain passwords, `qq` and `wechat`.
+5. **Bound `video_coviews` for larger catalogues.** It holds up to N(N−1) rows, and a user's deletion changes k(k−1) of them for k watched videos; unordered pairs halve that, a cap per user bounds it.
+6. **The first passes of danmu display.** In a fresh JVM the first pass over the benchmark's 382 display cases takes 114.6 ms here against 71.6 ms in the original, the fourth 36.2 against 34.9 ms ([WriteBench summary](docs/benchmark/round2/writebench/summary.md), reads mode). Find out which first-time cost differs (statement preparation, planning on each pooled connection, JIT); the server's share is small: a first execution in a fresh session took 0.21–0.36 ms against 0.10–0.15 ms for the next ones ([docs/explain/first-call.after.txt](docs/explain/first-call.after.txt)), on a pool of at most 10 connections.
+
+Tried and dropped: an early exit in the derived-table triggers when a transition table is empty (measured, no gain; see the notes).
