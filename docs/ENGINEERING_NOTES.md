@@ -1,6 +1,6 @@
 # Engineering notes
 
-This file covers how the 2023 course implementation (commit `2e811bd`, the 2023 course submission on `main`) became the current one: what changed, why, what was measured, and how the specification was read where it is ambiguous. The [README](../README.md) has the overview and the benchmark table; this file has the detail behind them. "Round 1", "round 2" and "round 3" are the three measured iterations of the 2026 rebuild (`978fe40`, `a330c0c` and `ac3a0dc`), and round 4 the WriteBench re-runs on the final code, as defined in the README's [methodology](../README.md#methodology).
+These are my notes on how the 2023 course implementation (commit `2e811bd`, our course submission on `main`) became the current one: what I changed, why, what I measured, and how I read the specification where it is ambiguous. The [README](../README.md) has the overview and the benchmark table; this file has the detail behind them. "Round 1", "round 2" and "round 3" are the three measured iterations of the 2026 rebuild (`978fe40`, `a330c0c` and `ac3a0dc`), and round 4 the WriteBench re-runs on the final code, as defined in the README's [methodology](../README.md#methodology).
 
 All timings come from one machine: 4 vCPUs, 15 GiB of RAM, and PostgreSQL 16 with `shared_buffers` 1 GB, `synchronous_commit` on and JIT on. Each run held an exclusive lock, so no other benchmark overlapped it. Every number below names the file it comes from.
 

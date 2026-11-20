@@ -38,7 +38,7 @@ and this version alternate. Steady runs: `--settle` (a `CHECKPOINT` after the im
 measured calls per operation, 8 deletions of imported videos, seeds 1-5; the 8-client runs leave out \
 `deleteAccount`, which has runs of its own (20 warm-up and 100 measured calls, seeds 1-3). Count mode: 20 \
 calls per operation. Stress mode: 45 trials per part. Reads mode: 5 passes, seeds 1-3. Run \
-`delacct-new-c8-r2` was stopped once by the session's time limit for background jobs and run again from \
+`delacct-new-c8-r2` was interrupted once and run again from \
 the start; the stopped attempt is not kept.
 """
 P(HEADER)
